@@ -1,0 +1,30 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+
+# Go
+/vendor/
+
+# Env files with secrets
+*.env
+!*.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Docker
+docker-compose.override.yml
+
+# Build artifacts
+/dist/
+*.skill
+
+# Python
+__pycache__/
+*.pyc
