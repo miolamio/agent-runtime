@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
@@ -13,30 +12,31 @@ import (
 type RunOpts struct {
 	Prompt   string
 	Model    string
-	Profile  string
+	Provider string // zai | minimax (overrides config)
 	Loop     bool
 	MaxLoops int
-	Skills   []string
 	Name     string
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
-	// Default to Z.AI profile if no profile specified
-	if opts.Profile == "" {
-		opts.Profile = "zai"
+	provider := opts.Provider
+	if provider == "" {
+		provider = cfg.Provider
 	}
 
-	args := buildClawkerArgs(cfg, opts)
+	args := buildClawkerArgs(cfg, opts, provider)
 	cmd := exec.Command("clawker", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	fmt.Fprintf(os.Stderr, "[arun] Running: clawker %s\n", strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
+		provider, cfg.ActiveModel(), cfg.Workspace, cfg.Mode)
+	fmt.Fprintf(os.Stderr, "[arun] clawker %s\n", strings.Join(args, " "))
 	return cmd.Run()
 }
 
-func buildClawkerArgs(cfg *config.Config, opts RunOpts) []string {
+func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []string {
 	var args []string
 
 	if opts.Loop {
@@ -49,21 +49,26 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts) []string {
 		args = append(args, "run")
 	}
 
+	// Workspace mode
+	args = append(args, "--mode", cfg.Mode)
+
 	if opts.Name != "" {
-		args = append(args, "--name", opts.Name)
+		args = append(args, "--agent", opts.Name)
 	}
 
-	args = append(args, "--skip-permissions")
+	args = append(args, "--rm")
 
-	if opts.Profile != "" {
-		envFile := filepath.Join(cfg.ProfilesDir, opts.Profile+".env")
-		if _, err := os.Stat(envFile); err == nil {
-			args = append(args, "--env-file", envFile)
-		}
+	// Pass environment variables from config
+	for _, env := range cfg.ContainerEnv(provider) {
+		args = append(args, "-e", env)
 	}
 
+	// Image reference
+	args = append(args, "@")
+
+	// Claude Code flags (after @)
 	if !opts.Loop {
-		args = append(args, "--", "claude", "-p", opts.Prompt)
+		args = append(args, "-p", opts.Prompt, "--dangerously-skip-permissions")
 	}
 
 	return args

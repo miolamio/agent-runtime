@@ -21,7 +21,7 @@ func ParseAgentSpec(spec string) (AgentSpec, error) {
 	return AgentSpec{Name: parts[0], Prompt: parts[1]}, nil
 }
 
-func RunParallel(cfg *config.Config, agents []AgentSpec, profile string) error {
+func RunParallel(cfg *config.Config, agents []AgentSpec, provider string) error {
 	var wg sync.WaitGroup
 	errors := make(chan error, len(agents))
 
@@ -30,9 +30,9 @@ func RunParallel(cfg *config.Config, agents []AgentSpec, profile string) error {
 		go func(a AgentSpec) {
 			defer wg.Done()
 			opts := RunOpts{
-				Prompt:  a.Prompt,
-				Profile: profile,
-				Name:    a.Name,
+				Prompt:   a.Prompt,
+				Provider: provider,
+				Name:     a.Name,
 			}
 			if err := Run(cfg, opts); err != nil {
 				errors <- fmt.Errorf("agent %s failed: %w", a.Name, err)

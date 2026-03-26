@@ -12,7 +12,7 @@ import (
 	"github.com/codegeek/automatica-agent-runtime/internal/runner"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -46,13 +46,11 @@ func main() {
 
 	// Parse run flags
 	fs := flag.NewFlagSet("arun", flag.ExitOnError)
-	model := fs.String("model", "", "Model to use (provider,model-name)")
-	profile := fs.String("profile", "", "Environment profile (anthropic, zai, minimax, router)")
+	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
-	name := fs.String("name", "", "Agent name (for parallel runs)")
+	name := fs.String("name", "", "Agent name")
 	parallel := fs.Bool("parallel", false, "Run agents in parallel")
-	skillsFlag := fs.String("skills", "", "Comma-separated list of skills to load")
 	var agents []string
 	fs.Func("agent", "Agent spec 'name:prompt' (repeatable, use with --parallel)", func(s string) error {
 		agents = append(agents, s)
@@ -76,14 +74,13 @@ func main() {
 			}
 			specs = append(specs, spec)
 		}
-		if err := runner.RunParallel(cfg, specs, *profile); err != nil {
+		if err := runner.RunParallel(cfg, specs, *provider); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	// Collect remaining args as prompt
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" {
 		fmt.Fprintln(os.Stderr, "error: no prompt provided")
@@ -91,19 +88,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	var skills []string
-	if *skillsFlag != "" {
-		skills = strings.Split(*skillsFlag, ",")
-	}
-
 	opts := runner.RunOpts{
 		Prompt:   prompt,
-		Model:    *model,
-		Profile:  *profile,
+		Provider: *provider,
 		Loop:     *loop,
 		MaxLoops: *maxLoops,
 		Name:     *name,
-		Skills:   skills,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -112,44 +102,42 @@ func main() {
 }
 
 func runCheck() {
-	fmt.Println("AUTOMATICA Agent Runtime — Prerequisites Check")
+	fmt.Println("AUTOMATICA Agent Runtime — Check")
 	fmt.Println()
+
+	// Prerequisites
 	status, _ := prereq.Check()
+	fmt.Println("Prerequisites:")
 	fmt.Println(status)
 	fmt.Println()
-	if status.Ready() {
-		fmt.Println("All prerequisites met.")
-	} else {
-		fmt.Println("Some prerequisites are missing. Install them before running agents.")
-	}
 
+	// Config
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("\nConfig error: %v\n", err)
+		fmt.Printf("Config error: %v\n", err)
 		return
 	}
-	if err := cfg.Validate(); err != nil {
-		fmt.Printf("\nConfig validation: %v\n", err)
-	} else {
-		fmt.Println("\nDirectories: OK")
-	}
+	fmt.Println("Config (~/.automatica.env):")
+	fmt.Println(cfg.Show())
+	fmt.Println()
+
+	fmt.Printf("Env file: %s\n", cfg.EnvFile)
 }
 
 func printUsage() {
 	fmt.Print(`arun — AUTOMATICA Agent Runtime CLI v` + version + `
 
 Usage:
-  arun "prompt"                              Run a single agent task
-  arun --model provider,model "prompt"       Run with specific model
-  arun --profile name "prompt"               Run with specific profile
-  arun --loop --max-loops N "prompt"         Run in autonomous loop mode
-  arun --parallel --agent "n:prompt" [...]   Run parallel agents
+  arun "prompt"                              Run agent (default provider from ~/.automatica.env)
+  arun --provider minimax "prompt"           Run with specific provider
+  arun --loop --max-loops N "prompt"         Autonomous loop mode
+  arun --parallel --agent "n:prompt" [...]   Parallel agents
   arun --status                              Show running agents
-  arun --monitor                             Start monitoring dashboard
-  arun --check                               Check prerequisites
+  arun --monitor                             Start monitoring
+  arun --check                               Show config and prerequisites
   arun --version                             Show version
 
-Profiles: zai (default), minimax
-Models:   glm-4.7 (Z.AI) | MiniMax-M2.7 (MiniMax)
+Config: ~/.automatica.env (workspace, API keys, provider, mode)
+Providers: zai (Z.AI GLM-4.7) | minimax (MiniMax M2.7)
 `)
 }
