@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
-	"github.com/codegeek/automatica-agent-runtime/internal/prereq"
 )
 
 type RunOpts struct {
@@ -22,18 +21,9 @@ type RunOpts struct {
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
-	status, err := prereq.Check()
-	if err != nil {
-		return fmt.Errorf("prerequisite check failed: %w", err)
-	}
-	if !status.Ready() {
-		return fmt.Errorf("prerequisites not met:\n%s", status)
-	}
-
-	if opts.Profile == "" || opts.Profile == "router" {
-		if err := prereq.EnsureRouterRunning(); err != nil {
-			fmt.Fprintf(os.Stderr, "[arun] warning: could not start Router: %v\n", err)
-		}
+	// Default to Z.AI profile if no profile specified
+	if opts.Profile == "" {
+		opts.Profile = "zai"
 	}
 
 	args := buildClawkerArgs(cfg, opts)

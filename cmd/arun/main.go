@@ -149,7 +149,7 @@ Usage:
   arun --check                               Check prerequisites
   arun --version                             Show version
 
-Profiles: anthropic, zai, minimax, router
-Models:   anthropic,claude-sonnet-4-20250514 | zai,glm-5 | minimax,MiniMax-M2.5
+Profiles: zai (default), minimax
+Models:   glm-4.7 (Z.AI) | MiniMax-M2.7 (MiniMax)
 `)
 }
