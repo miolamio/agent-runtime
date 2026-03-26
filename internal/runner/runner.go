@@ -11,7 +11,6 @@ import (
 
 type RunOpts struct {
 	Prompt   string
-	Model    string
 	Provider string // zai | minimax (overrides config)
 	Loop     bool
 	MaxLoops int
@@ -24,15 +23,59 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		provider = cfg.Provider
 	}
 
+	model := cfg.ZaiModel
+	if provider == "minimax" {
+		model = cfg.MinimaxModel
+	}
+
+	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
+		provider, model, cfg.Workspace, cfg.Mode)
+
+	// Try clawker first, fall back to docker run if socket bridge fails
 	args := buildClawkerArgs(cfg, opts, provider)
+	fmt.Fprintf(os.Stderr, "[arun] clawker %s\n", strings.Join(args, " "))
+
 	cmd := exec.Command("clawker", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
-		provider, cfg.ActiveModel(), cfg.Workspace, cfg.Mode)
-	fmt.Fprintf(os.Stderr, "[arun] clawker %s\n", strings.Join(args, " "))
+	err := cmd.Run()
+	if err != nil && strings.Contains(err.Error(), "exit status 1") {
+		// clawker might have failed due to socket bridge — try docker fallback
+		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
+		return runDocker(cfg, opts, provider)
+	}
+	return err
+}
+
+func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
+	// Find project image name
+	imageName := "clawker-agent-runtime:latest"
+
+	args := []string{"run", "--rm"}
+
+	// Pass environment variables
+	for _, env := range cfg.ContainerEnv(provider) {
+		args = append(args, "-e", env)
+	}
+
+	// Mount workspace if in bind mode
+	if cfg.Mode == "bind" {
+		args = append(args, "-v", cfg.Workspace+":/workspace")
+	}
+
+	args = append(args, imageName)
+
+	// Claude Code command
+	args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+
+	fmt.Fprintf(os.Stderr, "[arun] docker %s\n", strings.Join(args, " "))
+
+	cmd := exec.Command("docker", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 	return cmd.Run()
 }
 
@@ -49,7 +92,6 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []strin
 		args = append(args, "run")
 	}
 
-	// Workspace mode
 	args = append(args, "--mode", cfg.Mode)
 
 	if opts.Name != "" {
@@ -58,15 +100,12 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []strin
 
 	args = append(args, "--rm")
 
-	// Pass environment variables from config
 	for _, env := range cfg.ContainerEnv(provider) {
 		args = append(args, "-e", env)
 	}
 
-	// Image reference
 	args = append(args, "@")
 
-	// Claude Code flags (after @)
 	if !opts.Loop {
 		args = append(args, "-p", opts.Prompt, "--dangerously-skip-permissions")
 	}
