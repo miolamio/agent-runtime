@@ -10,11 +10,13 @@ import (
 )
 
 type RunOpts struct {
-	Prompt   string
-	Provider string // zai | minimax (overrides config)
-	Loop     bool
-	MaxLoops int
-	Name     string
+	Prompt      string
+	Provider    string // zai | minimax (overrides config)
+	Loop        bool
+	MaxLoops    int
+	Name        string
+	Interactive bool   // -it mode, no prompt
+	Mount       string // explicit mount path (overrides config workspace)
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
@@ -26,6 +28,19 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	model := cfg.ZaiModel
 	if provider == "minimax" {
 		model = cfg.MinimaxModel
+	}
+
+	mount := opts.Mount
+	if mount == "" {
+		mount = cfg.Workspace
+	}
+
+	if opts.Interactive {
+		fmt.Fprintf(os.Stderr, "[arun] interactive session: provider=%s model=%s\n", provider, model)
+		if mount != "" {
+			fmt.Fprintf(os.Stderr, "[arun] mount: %s → /workspace\n", mount)
+		}
+		return runDockerInteractive(cfg, provider, mount)
 	}
 
 	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
@@ -42,11 +57,34 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	err := cmd.Run()
 	if err != nil && strings.Contains(err.Error(), "exit status 1") {
-		// clawker might have failed due to socket bridge — try docker fallback
 		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
 		return runDocker(cfg, opts, provider)
 	}
 	return err
+}
+
+func runDockerInteractive(cfg *config.Config, provider, mount string) error {
+	imageName := "clawker-agent-runtime:latest"
+
+	args := []string{"run", "-it", "--rm"}
+
+	for _, env := range cfg.ContainerEnv(provider) {
+		args = append(args, "-e", env)
+	}
+
+	if mount != "" {
+		args = append(args, "-v", mount+":/workspace")
+	}
+
+	args = append(args, imageName)
+
+	fmt.Fprintf(os.Stderr, "[arun] docker %s\n", strings.Join(args, " "))
+
+	cmd := exec.Command("docker", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider string) error {

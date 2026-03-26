@@ -42,6 +42,9 @@ func main() {
 	case "--check":
 		runCheck()
 		return
+	case "shell":
+		runShell(os.Args[2:])
+		return
 	}
 
 	// Parse run flags
@@ -101,6 +104,29 @@ func main() {
 	}
 }
 
+func runShell(args []string) {
+	fs := flag.NewFlagSet("shell", flag.ExitOnError)
+	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
+	mount := fs.String("mount", "", "Directory to mount into /workspace")
+	fs.Parse(args)
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(1)
+	}
+
+	opts := runner.RunOpts{
+		Interactive: true,
+		Provider:    *provider,
+		Mount:       *mount,
+	}
+	if err := runner.Run(cfg, opts); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func runCheck() {
 	fmt.Println("AUTOMATICA Agent Runtime — Check")
 	fmt.Println()
@@ -128,12 +154,14 @@ func printUsage() {
 	fmt.Print(`arun — AUTOMATICA Agent Runtime CLI v` + version + `
 
 Usage:
-  arun "prompt"                              Run agent (default provider from ~/.automatica.env)
+  arun "prompt"                              Run agent task
   arun --provider minimax "prompt"           Run with specific provider
+  arun shell                                 Interactive Claude Code session
+  arun shell --mount /path/to/project        Interactive with project mounted
+  arun shell --provider minimax              Interactive with MiniMax
   arun --loop --max-loops N "prompt"         Autonomous loop mode
   arun --parallel --agent "n:prompt" [...]   Parallel agents
   arun --status                              Show running agents
-  arun --monitor                             Start monitoring
   arun --check                               Show config and prerequisites
   arun --version                             Show version
 
