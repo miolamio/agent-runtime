@@ -1,0 +1,12 @@
+# AUTOMATICA Container Init Manifest
+# Mount at /home/user/.automatica/init.yaml inside the container
+
+npm_packages:
+  - "prettier"
+
+skill_repos: []
+  # - "https://github.com/your-org/your-skill.git"
+
+pip_packages: []
+  # - "pypdf"
+  # - "pdfplumber"
