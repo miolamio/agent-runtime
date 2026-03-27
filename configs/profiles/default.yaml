@@ -1,0 +1,7 @@
+name: default
+description: Basic agent with no extra skills
+provider: z
+skills: []
+plugins: []
+settings:
+  effortLevel: high

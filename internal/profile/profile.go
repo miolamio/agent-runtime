@@ -1,0 +1,72 @@
+package profile
+
+import (
+	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Profile struct {
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Provider    string         `yaml:"provider"`
+	Skills      []string       `yaml:"skills"`
+	Plugins     []string       `yaml:"plugins"`
+	Settings    map[string]any `yaml:"settings"`
+}
+
+func Load(name string) (*Profile, error) {
+	usr, _ := user.Current()
+	path := filepath.Join(usr.HomeDir, "automatica-profiles", name+".yaml")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("profile %q not found: %w", name, err)
+	}
+
+	var p Profile
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("invalid profile %q: %w", name, err)
+	}
+
+	if p.Name == "" {
+		p.Name = name
+	}
+
+	return &p, nil
+}
+
+func List() ([]string, error) {
+	usr, _ := user.Current()
+	dir := filepath.Join(usr.HomeDir, "automatica-profiles")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".yaml" {
+			names = append(names, e.Name()[:len(e.Name())-5])
+		}
+	}
+	return names, nil
+}
+
+// SkillPaths returns host paths for listed skills.
+func (p *Profile) SkillPaths() []string {
+	usr, _ := user.Current()
+	base := filepath.Join(usr.HomeDir, "automatica-skills")
+	var paths []string
+	for _, s := range p.Skills {
+		path := filepath.Join(base, s)
+		if _, err := os.Stat(path); err == nil {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}

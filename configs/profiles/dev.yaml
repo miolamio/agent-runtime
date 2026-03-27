@@ -1,0 +1,13 @@
+name: dev
+description: Full-stack development
+provider: z
+skills:
+  - claude-code-best-practices
+  - webapp-testing
+plugins:
+  - superpowers@superpowers-marketplace
+  - pyright-lsp@claude-plugins-official
+  - context7@claude-plugins-official
+settings:
+  effortLevel: high
+  alwaysThinkingEnabled: true

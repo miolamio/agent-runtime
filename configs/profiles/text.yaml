@@ -1,0 +1,12 @@
+name: text
+description: Russian text editing and translation
+provider: mm
+skills:
+  - ru-editor
+  - en-ru-translator-adv
+  - krrkt
+plugins:
+  - ru-editor@miolamio-agent-skills
+  - en-ru-translator-adv@miolamio-agent-skills
+settings:
+  effortLevel: high
