@@ -68,6 +68,7 @@ func main() {
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
 	name := fs.String("name", "", "Agent name")
+	output := fs.String("output", "", "Export workspace to this directory after run")
 	parallel := fs.Bool("parallel", false, "Run agents in parallel")
 	var agents []string
 	fs.Func("agent", "Agent spec 'name:prompt' (repeatable, use with --parallel)", func(s string) error {
@@ -113,6 +114,7 @@ func main() {
 		Loop:     *loop,
 		MaxLoops: *maxLoops,
 		Name:     *name,
+		Output:   *output,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -181,6 +183,7 @@ Usage:
   arun shell --mount /path/to/project        Interactive with project mounted
   arun shell --provider mm                   Interactive with MiniMax
   arun --loop --max-loops N "prompt"         Autonomous loop mode
+  arun --output /tmp/out "prompt"            Export workspace after run
   arun --parallel --agent "n:prompt" [...]   Parallel agents
   arun history                               Show recent run history
   arun --status                              Show running agents
@@ -190,6 +193,7 @@ Usage:
 Flags:
   -p, --profile    Profile name (loads skills, settings, provider)
   --provider       Provider override: z/zai | m/mm/minimax
+  --output         Export workspace to this directory after run
 
 Config: ~/.automatica.env (workspace, API keys, provider, mode)
 Profiles: ~/automatica-profiles/*.yaml

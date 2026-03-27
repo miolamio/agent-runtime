@@ -26,6 +26,7 @@ type RunOpts struct {
 	Name        string
 	Interactive bool   // -it mode, no prompt
 	Mount       string // explicit mount path (overrides config workspace)
+	Output      string // export workspace to this directory after run
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
@@ -83,6 +84,10 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
 		provider, model, cfg.Workspace, cfg.Mode)
+
+	if opts.Output != "" {
+		return runDockerWithExport(cfg, opts, provider, model, extraVolumes)
+	}
 
 	// Try clawker first, fall back to docker run if socket bridge fails
 	args, envPath, err := buildClawkerArgs(cfg, opts, provider)
@@ -231,6 +236,82 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
 
 	return err
+}
+
+func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
+	imageName := "clawker-agent-runtime:latest"
+	containerName := fmt.Sprintf("arun-export-%d", time.Now().Unix())
+
+	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	if err != nil {
+		return err
+	}
+	defer envfile.Cleanup(envPath)
+
+	// docker create
+	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
+
+	mount := opts.Mount
+	if mount == "" {
+		mount, _ = os.Getwd()
+	}
+	if mount != "" {
+		createArgs = append(createArgs, "-v", mount+":/workspace")
+	}
+	for _, v := range extraVolumes {
+		createArgs = append(createArgs, "-v", v)
+	}
+	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+
+	fmt.Fprintf(os.Stderr, "[arun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
+	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
+	}
+
+	// docker start -a (attach stdout)
+	var outputBuf bytes.Buffer
+	start := time.Now()
+
+	startCmd := exec.Command("docker", "start", "-a", containerName)
+	startCmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
+	startCmd.Stderr = os.Stderr
+	runErr := startCmd.Run()
+
+	exitCode := 0
+	if runErr != nil {
+		exitCode = 1
+	}
+
+	// docker cp workspace out
+	os.MkdirAll(opts.Output, 0755)
+	cpCmd := exec.Command("docker", "cp", containerName+":/workspace/.", opts.Output)
+	if cpOut, err := cpCmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "[arun] warning: docker cp failed: %s\n", string(cpOut))
+	} else {
+		fmt.Fprintf(os.Stderr, "[arun] exported workspace to %s\n", opts.Output)
+	}
+
+	// docker rm
+	exec.Command("docker", "rm", containerName).Run()
+
+	// Save history
+	rec := history.RunRecord{
+		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
+		Profile:    opts.Profile,
+		Provider:   provider,
+		Model:      model,
+		Prompt:     opts.Prompt,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCode,
+		RunDir:     history.NewRunDir(opts.Profile, provider),
+	}
+	history.Save(rec, outputBuf.String())
+
+	fmt.Fprintf(os.Stderr, "[arun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
+	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
+
+	return runErr
 }
 
 func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) ([]string, string, error) {
