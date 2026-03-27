@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
+	"github.com/codegeek/automatica-agent-runtime/internal/envfile"
 )
 
 type RunOpts struct {
@@ -47,7 +48,12 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		provider, model, cfg.Workspace, cfg.Mode)
 
 	// Try clawker first, fall back to docker run if socket bridge fails
-	args := buildClawkerArgs(cfg, opts, provider)
+	args, envPath, err := buildClawkerArgs(cfg, opts, provider)
+	if err != nil {
+		return err
+	}
+	defer envfile.Cleanup(envPath)
+
 	fmt.Fprintf(os.Stderr, "[arun] clawker %s\n", strings.Join(args, " "))
 
 	cmd := exec.Command("clawker", args...)
@@ -55,7 +61,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil && strings.Contains(err.Error(), "exit status 1") {
 		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
 		return runDocker(cfg, opts, provider)
@@ -66,11 +72,14 @@ func Run(cfg *config.Config, opts RunOpts) error {
 func runDockerInteractive(cfg *config.Config, provider, mount string) error {
 	imageName := "clawker-agent-runtime:latest"
 
-	args := []string{"run", "-it", "--rm"}
-
-	for _, env := range cfg.ContainerEnv(provider) {
-		args = append(args, "-e", env)
+	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	if err != nil {
+		return err
 	}
+	defer envfile.Cleanup(envPath)
+
+	args := []string{"run", "-it", "--rm"}
+	args = append(args, "--env-file", envPath)
 
 	if mount != "" {
 		args = append(args, "-v", mount+":/workspace")
@@ -78,7 +87,8 @@ func runDockerInteractive(cfg *config.Config, provider, mount string) error {
 
 	args = append(args, imageName)
 
-	fmt.Fprintf(os.Stderr, "[arun] docker %s\n", strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[arun] docker run -it --rm --env-file %s %s\n",
+		envfile.MaskLog(envPath), imageName)
 
 	cmd := exec.Command("docker", args...)
 	cmd.Stdout = os.Stdout
@@ -91,12 +101,14 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
 	// Find project image name
 	imageName := "clawker-agent-runtime:latest"
 
-	args := []string{"run", "--rm"}
-
-	// Pass environment variables
-	for _, env := range cfg.ContainerEnv(provider) {
-		args = append(args, "-e", env)
+	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	if err != nil {
+		return err
 	}
+	defer envfile.Cleanup(envPath)
+
+	args := []string{"run", "--rm"}
+	args = append(args, "--env-file", envPath)
 
 	// Mount workspace if in bind mode
 	if cfg.Mode == "bind" {
@@ -108,7 +120,8 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
 	// Claude Code command
 	args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
 
-	fmt.Fprintf(os.Stderr, "[arun] docker %s\n", strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[arun] docker run --rm --env-file %s %s\n",
+		envfile.MaskLog(envPath), imageName)
 
 	cmd := exec.Command("docker", args...)
 	cmd.Stdout = os.Stdout
@@ -117,7 +130,12 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
 	return cmd.Run()
 }
 
-func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []string {
+func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) ([]string, string, error) {
+	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	if err != nil {
+		return nil, "", err
+	}
+
 	var args []string
 
 	if opts.Loop {
@@ -137,10 +155,7 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []strin
 	}
 
 	args = append(args, "--rm")
-
-	for _, env := range cfg.ContainerEnv(provider) {
-		args = append(args, "-e", env)
-	}
+	args = append(args, "--env-file", envPath)
 
 	args = append(args, "@")
 
@@ -148,5 +163,5 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) []strin
 		args = append(args, "-p", opts.Prompt, "--dangerously-skip-permissions")
 	}
 
-	return args
+	return args, envPath, nil
 }
