@@ -1,15 +1,19 @@
 package runner
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
 	"github.com/codegeek/automatica-agent-runtime/internal/envfile"
+	"github.com/codegeek/automatica-agent-runtime/internal/history"
 	"github.com/codegeek/automatica-agent-runtime/internal/profile"
 )
 
@@ -90,8 +94,11 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	fmt.Fprintf(os.Stderr, "[arun] clawker run --mode %s --env-file %s @\n",
 		cfg.Mode, envfile.MaskLog(envPath))
 
+	var outputBuf bytes.Buffer
+	start := time.Now()
+
 	cmd := exec.Command("clawker", args...)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
@@ -99,8 +106,30 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	if err != nil && strings.Contains(err.Error(), "exit status 1") {
 		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
 		envfile.Cleanup(envPath) // clean up before creating a new one in runDocker
-		return runDocker(cfg, opts, provider, extraVolumes)
+		return runDocker(cfg, opts, provider, model, extraVolumes)
 	}
+
+	// Save history for clawker runs
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+	}
+	rec := history.RunRecord{
+		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
+		Profile:    opts.Profile,
+		Provider:   provider,
+		Model:      model,
+		Prompt:     opts.Prompt,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCode,
+		RunDir:     history.NewRunDir(opts.Profile, provider),
+	}
+	history.Save(rec, outputBuf.String())
+
+	fmt.Fprintf(os.Stderr, "[arun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
+	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
+
 	return err
 }
 
@@ -136,7 +165,7 @@ func runDockerInteractive(cfg *config.Config, provider, mount string, extraVolum
 	return cmd.Run()
 }
 
-func runDocker(cfg *config.Config, opts RunOpts, provider string, extraVolumes []string) error {
+func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
 	// Find project image name
 	imageName := "clawker-agent-runtime:latest"
 
@@ -170,11 +199,38 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string, extraVolumes [
 	fmt.Fprintf(os.Stderr, "[arun] docker run --rm --env-file %s %s\n",
 		envfile.MaskLog(envPath), imageName)
 
+	var outputBuf bytes.Buffer
+	start := time.Now()
+
 	cmd := exec.Command("docker", args...)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+
+	err = cmd.Run()
+	exitCode := 0
+	if err != nil {
+		exitCode = 1
+	}
+
+	// Save history
+	rec := history.RunRecord{
+		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
+		Profile:    opts.Profile,
+		Provider:   provider,
+		Model:      model,
+		Prompt:     opts.Prompt,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCode,
+		RunDir:     history.NewRunDir(opts.Profile, provider),
+	}
+	history.Save(rec, outputBuf.String())
+
+	fmt.Fprintf(os.Stderr, "[arun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
+	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
+
+	return err
 }
 
 func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) ([]string, string, error) {

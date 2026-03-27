@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
+	"github.com/codegeek/automatica-agent-runtime/internal/history"
 	"github.com/codegeek/automatica-agent-runtime/internal/monitor"
 	"github.com/codegeek/automatica-agent-runtime/internal/prereq"
 	"github.com/codegeek/automatica-agent-runtime/internal/runner"
@@ -44,6 +45,18 @@ func main() {
 		return
 	case "shell":
 		runShell(os.Args[2:])
+		return
+	case "history":
+		records, err := history.List(20)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "No run history yet.\n")
+			return
+		}
+		if len(records) == 0 {
+			fmt.Println("No runs yet.")
+			return
+		}
+		fmt.Print(history.FormatTable(records))
 		return
 	}
 
@@ -169,6 +182,7 @@ Usage:
   arun shell --provider mm                   Interactive with MiniMax
   arun --loop --max-loops N "prompt"         Autonomous loop mode
   arun --parallel --agent "n:prompt" [...]   Parallel agents
+  arun history                               Show recent run history
   arun --status                              Show running agents
   arun --check                               Show config and prerequisites
   arun --version                             Show version
