@@ -18,7 +18,10 @@ func Write(envVars []string) (string, error) {
 		return "", fmt.Errorf("cannot chmod env file: %w", err)
 	}
 	for _, env := range envVars {
-		fmt.Fprintln(f, env)
+		if _, err := fmt.Fprintln(f, env); err != nil {
+			os.Remove(f.Name())
+			return "", fmt.Errorf("cannot write env file: %w", err)
+		}
 	}
 	return f.Name(), nil
 }

@@ -54,7 +54,8 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	}
 	defer envfile.Cleanup(envPath)
 
-	fmt.Fprintf(os.Stderr, "[arun] clawker %s\n", strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "[arun] clawker run --mode %s --env-file %s @\n",
+		cfg.Mode, envfile.MaskLog(envPath))
 
 	cmd := exec.Command("clawker", args...)
 	cmd.Stdout = os.Stdout
@@ -64,6 +65,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	err = cmd.Run()
 	if err != nil && strings.Contains(err.Error(), "exit status 1") {
 		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
+		envfile.Cleanup(envPath) // clean up before creating a new one in runDocker
 		return runDocker(cfg, opts, provider)
 	}
 	return err
