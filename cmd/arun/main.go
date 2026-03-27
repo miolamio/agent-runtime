@@ -4,6 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
@@ -11,6 +14,7 @@ import (
 	"github.com/codegeek/automatica-agent-runtime/internal/monitor"
 	"github.com/codegeek/automatica-agent-runtime/internal/prereq"
 	"github.com/codegeek/automatica-agent-runtime/internal/runner"
+	"github.com/codegeek/automatica-agent-runtime/internal/setup"
 )
 
 const version = "0.2.0"
@@ -45,6 +49,41 @@ func main() {
 		return
 	case "shell":
 		runShell(os.Args[2:])
+		return
+	case "init":
+		if err := setup.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	case "rebuild":
+		fmt.Println("[arun] Rebuilding docker image...")
+		args := []string{"build"}
+		if len(os.Args) > 2 && os.Args[2] == "--no-cache" {
+			args = append(args, "--no-cache")
+		}
+		cmd := exec.Command("clawker", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		// Try current dir first, then fallback paths
+		if _, err := os.Stat(".clawker.yaml"); err != nil {
+			usr, _ := user.Current()
+			for _, dir := range []string{
+				filepath.Join(usr.HomeDir, "src", "agent-runtime"),
+				filepath.Join(usr.HomeDir, "agent-runtime"),
+			} {
+				if _, err := os.Stat(filepath.Join(dir, ".clawker.yaml")); err == nil {
+					cmd.Dir = dir
+					break
+				}
+			}
+		}
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "[arun] rebuild failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("[arun] Rebuild complete.")
 		return
 	case "history":
 		records, err := history.List(20)
@@ -186,6 +225,9 @@ Usage:
   arun --output /tmp/out "prompt"            Export workspace after run
   arun --parallel --agent "n:prompt" [...]   Parallel agents
   arun history                               Show recent run history
+  arun init                                  Interactive global setup
+  arun rebuild                               Rebuild docker image
+  arun rebuild --no-cache                    Rebuild without cache
   arun --status                              Show running agents
   arun --check                               Show config and prerequisites
   arun --version                             Show version
