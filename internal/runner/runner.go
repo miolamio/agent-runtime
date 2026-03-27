@@ -83,7 +83,6 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile}, provider, model, extraVolumes)
 	}
 
-	// Fix 1: go straight to docker, skip clawker (socket bridge bug)
 	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile}, provider, model, extraVolumes)
 }
 
