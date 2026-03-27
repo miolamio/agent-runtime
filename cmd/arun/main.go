@@ -57,33 +57,35 @@ func main() {
 		}
 		return
 	case "rebuild":
-		fmt.Println("[arun] Rebuilding docker image...")
-		args := []string{"build"}
+		fmt.Println("[arun] Rebuilding automatica-runtime image...")
+		args := []string{"build", "-t", "automatica-runtime:latest"}
 		if len(os.Args) > 2 && os.Args[2] == "--no-cache" {
 			args = append(args, "--no-cache")
 		}
-		cmd := exec.Command("clawker", args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-		// Try current dir first, then fallback paths
-		if _, err := os.Stat(".clawker.yaml"); err != nil {
+		// Find docker/ directory with our Dockerfile
+		dockerDir := "docker"
+		if _, err := os.Stat(filepath.Join(dockerDir, "Dockerfile")); err != nil {
 			usr, _ := user.Current()
 			for _, dir := range []string{
-				filepath.Join(usr.HomeDir, "src", "agent-runtime"),
-				filepath.Join(usr.HomeDir, "agent-runtime"),
+				filepath.Join(usr.HomeDir, "src", "agent-runtime", "docker"),
+				filepath.Join(usr.HomeDir, "agent-runtime", "docker"),
 			} {
-				if _, err := os.Stat(filepath.Join(dir, ".clawker.yaml")); err == nil {
-					cmd.Dir = dir
+				if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+					dockerDir = dir
 					break
 				}
 			}
 		}
+		args = append(args, dockerDir)
+		cmd := exec.Command("docker", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "[arun] rebuild failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("[arun] Rebuild complete.")
+		fmt.Println("[arun] Rebuild complete: automatica-runtime:latest")
 		return
 	case "history":
 		records, err := history.List(20)

@@ -88,7 +88,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	imageName := "clawker-agent-runtime:latest"
+	imageName := "automatica-runtime:latest"
 
 	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
 	if err != nil {
@@ -165,7 +165,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 }
 
 func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	imageName := "clawker-agent-runtime:latest"
+	imageName := "automatica-runtime:latest"
 	containerName := fmt.Sprintf("arun-export-%d", time.Now().Unix())
 
 	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
