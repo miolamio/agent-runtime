@@ -63,6 +63,9 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	mount := opts.Mount
 	if mount == "" {
+		mount, _ = os.Getwd()
+	}
+	if mount == "" {
 		mount = cfg.Workspace
 	}
 
@@ -146,9 +149,13 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string, extraVolumes [
 	args := []string{"run", "--rm"}
 	args = append(args, "--env-file", envPath)
 
-	// Mount workspace if in bind mode
-	if cfg.Mode == "bind" {
-		args = append(args, "-v", cfg.Workspace+":/workspace")
+	// Always mount workspace (pwd or explicit mount)
+	mount := opts.Mount
+	if mount == "" {
+		mount, _ = os.Getwd()
+	}
+	if mount != "" {
+		args = append(args, "-v", mount+":/workspace")
 	}
 
 	for _, v := range extraVolumes {
