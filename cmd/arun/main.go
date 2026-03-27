@@ -155,10 +155,10 @@ func printUsage() {
 
 Usage:
   arun "prompt"                              Run agent task
-  arun --provider minimax "prompt"           Run with specific provider
+  arun --provider mm "prompt"                Run with specific provider
   arun shell                                 Interactive Claude Code session
   arun shell --mount /path/to/project        Interactive with project mounted
-  arun shell --provider minimax              Interactive with MiniMax
+  arun shell --provider mm                   Interactive with MiniMax
   arun --loop --max-loops N "prompt"         Autonomous loop mode
   arun --parallel --agent "n:prompt" [...]   Parallel agents
   arun --status                              Show running agents
@@ -166,6 +166,6 @@ Usage:
   arun --version                             Show version
 
 Config: ~/.automatica.env (workspace, API keys, provider, mode)
-Providers: zai (Z.AI GLM-4.7) | minimax (MiniMax M2.7)
+Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7)
 `)
 }

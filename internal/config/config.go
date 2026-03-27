@@ -121,28 +121,20 @@ func (c *Config) loadEnvFile(path string) error {
 	return scanner.Err()
 }
 
-// ActiveBaseURL returns the API base URL for the active provider.
-func (c *Config) ActiveBaseURL() string {
-	if c.Provider == "minimax" {
-		return c.MinimaxBaseURL
+// NormalizeProvider resolves aliases: z/zai → zai, m/mm/minimax → minimax.
+func NormalizeProvider(p string) string {
+	switch strings.ToLower(p) {
+	case "m", "mm", "minimax":
+		return "minimax"
+	case "z", "zai", "":
+		return "zai"
+	default:
+		return p
 	}
-	return c.ZaiBaseURL
 }
 
-// ActiveAPIKey returns the API key for the active provider.
-func (c *Config) ActiveAPIKey() string {
-	if c.Provider == "minimax" {
-		return c.MinimaxAPIKey
-	}
-	return c.ZaiAPIKey
-}
-
-// ActiveModel returns the default model for the active provider.
-func (c *Config) ActiveModel() string {
-	if c.Provider == "minimax" {
-		return c.MinimaxModel
-	}
-	return c.ZaiModel
+func (c *Config) isMinimax() bool {
+	return NormalizeProvider(c.Provider) == "minimax"
 }
 
 // ContainerEnv returns env vars to pass into the container.
@@ -150,13 +142,14 @@ func (c *Config) ContainerEnv(provider string) []string {
 	if provider == "" {
 		provider = c.Provider
 	}
+	provider = NormalizeProvider(provider)
 	var baseURL, apiKey, model string
 	switch provider {
 	case "minimax":
 		baseURL = c.MinimaxBaseURL
 		apiKey = c.MinimaxAPIKey
 		model = c.MinimaxModel
-	default: // zai
+	default:
 		baseURL = c.ZaiBaseURL
 		apiKey = c.ZaiAPIKey
 		model = c.ZaiModel

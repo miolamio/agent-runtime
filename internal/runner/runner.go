@@ -20,9 +20,9 @@ type RunOpts struct {
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
-	provider := opts.Provider
-	if provider == "" {
-		provider = cfg.Provider
+	provider := config.NormalizeProvider(opts.Provider)
+	if opts.Provider == "" {
+		provider = config.NormalizeProvider(cfg.Provider)
 	}
 
 	model := cfg.ZaiModel
