@@ -50,6 +50,8 @@ func main() {
 	// Parse run flags
 	fs := flag.NewFlagSet("arun", flag.ExitOnError)
 	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
+	profileName := fs.String("p", "", "Profile name (dev, text, default)")
+	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
 	name := fs.String("name", "", "Agent name")
@@ -94,6 +96,7 @@ func main() {
 	opts := runner.RunOpts{
 		Prompt:   prompt,
 		Provider: *provider,
+		Profile:  *profileName,
 		Loop:     *loop,
 		MaxLoops: *maxLoops,
 		Name:     *name,
@@ -107,6 +110,8 @@ func main() {
 func runShell(args []string) {
 	fs := flag.NewFlagSet("shell", flag.ExitOnError)
 	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
+	profileName := fs.String("p", "", "Profile name (dev, text, default)")
+	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
 	fs.Parse(args)
 
@@ -119,6 +124,7 @@ func runShell(args []string) {
 	opts := runner.RunOpts{
 		Interactive: true,
 		Provider:    *provider,
+		Profile:     *profileName,
 		Mount:       *mount,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
@@ -155,8 +161,10 @@ func printUsage() {
 
 Usage:
   arun "prompt"                              Run agent task
+  arun -p dev "prompt"                       Run with profile (skills, settings)
   arun --provider mm "prompt"                Run with specific provider
   arun shell                                 Interactive Claude Code session
+  arun shell -p dev                          Interactive with profile
   arun shell --mount /path/to/project        Interactive with project mounted
   arun shell --provider mm                   Interactive with MiniMax
   arun --loop --max-loops N "prompt"         Autonomous loop mode
@@ -165,7 +173,12 @@ Usage:
   arun --check                               Show config and prerequisites
   arun --version                             Show version
 
+Flags:
+  -p, --profile    Profile name (loads skills, settings, provider)
+  --provider       Provider override: z/zai | m/mm/minimax
+
 Config: ~/.automatica.env (workspace, API keys, provider, mode)
+Profiles: ~/automatica-profiles/*.yaml
 Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7)
 `)
 }

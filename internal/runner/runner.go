@@ -1,18 +1,22 @@
 package runner
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/codegeek/automatica-agent-runtime/internal/config"
 	"github.com/codegeek/automatica-agent-runtime/internal/envfile"
+	"github.com/codegeek/automatica-agent-runtime/internal/profile"
 )
 
 type RunOpts struct {
 	Prompt      string
 	Provider    string // zai | minimax (overrides config)
+	Profile     string // profile name (loads skills, settings, provider)
 	Loop        bool
 	MaxLoops    int
 	Name        string
@@ -21,6 +25,32 @@ type RunOpts struct {
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
+	// Load profile if specified
+	var prof *profile.Profile
+	var extraVolumes []string
+	var settingsTmp string
+	if opts.Profile != "" {
+		var err error
+		prof, err = profile.Load(opts.Profile)
+		if err != nil {
+			return fmt.Errorf("profile: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[arun] profile=%s (%s)\n", prof.Name, prof.Description)
+
+		extraVolumes, settingsTmp, err = profileMounts(prof)
+		if err != nil {
+			return fmt.Errorf("profile mounts: %w", err)
+		}
+		if settingsTmp != "" {
+			defer os.Remove(settingsTmp)
+		}
+
+		// Profile provider is used if --provider not explicitly set
+		if opts.Provider == "" && prof.Provider != "" {
+			opts.Provider = prof.Provider
+		}
+	}
+
 	provider := config.NormalizeProvider(opts.Provider)
 	if opts.Provider == "" {
 		provider = config.NormalizeProvider(cfg.Provider)
@@ -41,7 +71,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		if mount != "" {
 			fmt.Fprintf(os.Stderr, "[arun] mount: %s → /workspace\n", mount)
 		}
-		return runDockerInteractive(cfg, provider, mount)
+		return runDockerInteractive(cfg, provider, mount, extraVolumes)
 	}
 
 	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s mode=%s\n",
@@ -66,12 +96,12 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	if err != nil && strings.Contains(err.Error(), "exit status 1") {
 		fmt.Fprintf(os.Stderr, "[arun] clawker failed, trying docker run fallback...\n")
 		envfile.Cleanup(envPath) // clean up before creating a new one in runDocker
-		return runDocker(cfg, opts, provider)
+		return runDocker(cfg, opts, provider, extraVolumes)
 	}
 	return err
 }
 
-func runDockerInteractive(cfg *config.Config, provider, mount string) error {
+func runDockerInteractive(cfg *config.Config, provider, mount string, extraVolumes []string) error {
 	imageName := "clawker-agent-runtime:latest"
 
 	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
@@ -87,6 +117,10 @@ func runDockerInteractive(cfg *config.Config, provider, mount string) error {
 		args = append(args, "-v", mount+":/workspace")
 	}
 
+	for _, v := range extraVolumes {
+		args = append(args, "-v", v)
+	}
+
 	args = append(args, imageName)
 
 	fmt.Fprintf(os.Stderr, "[arun] docker run -it --rm --env-file %s %s\n",
@@ -99,7 +133,7 @@ func runDockerInteractive(cfg *config.Config, provider, mount string) error {
 	return cmd.Run()
 }
 
-func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
+func runDocker(cfg *config.Config, opts RunOpts, provider string, extraVolumes []string) error {
 	// Find project image name
 	imageName := "clawker-agent-runtime:latest"
 
@@ -115,6 +149,10 @@ func runDocker(cfg *config.Config, opts RunOpts, provider string) error {
 	// Mount workspace if in bind mode
 	if cfg.Mode == "bind" {
 		args = append(args, "-v", cfg.Workspace+":/workspace")
+	}
+
+	for _, v := range extraVolumes {
+		args = append(args, "-v", v)
 	}
 
 	args = append(args, imageName)
@@ -166,4 +204,35 @@ func buildClawkerArgs(cfg *config.Config, opts RunOpts, provider string) ([]stri
 	}
 
 	return args, envPath, nil
+}
+
+// profileMounts generates Docker volume mount args from a profile's skills and settings.
+func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, err error) {
+	// Mount each skill directory
+	for _, skillPath := range p.SkillPaths() {
+		skillName := filepath.Base(skillPath)
+		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/skills/%s:ro", skillPath, skillName))
+	}
+
+	// Generate temp settings.json from profile settings
+	if len(p.Settings) > 0 {
+		settingsJSON, err := json.Marshal(p.Settings)
+		if err != nil {
+			return nil, "", fmt.Errorf("marshal settings: %w", err)
+		}
+		f, err := os.CreateTemp(os.TempDir(), ".arun-settings-*.json")
+		if err != nil {
+			return nil, "", fmt.Errorf("create settings temp file: %w", err)
+		}
+		if _, err := f.Write(settingsJSON); err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return nil, "", fmt.Errorf("write settings: %w", err)
+		}
+		f.Close()
+		settingsPath = f.Name()
+		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json:ro", settingsPath))
+	}
+
+	return volumes, settingsPath, nil
 }
