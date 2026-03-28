@@ -146,7 +146,7 @@ func main() {
 		return
 	case "proxy":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: airun proxy <init|serve|student> [args]")
+			fmt.Println("Usage: airun proxy <init|serve|user> [args]")
 			os.Exit(1)
 		}
 		configPath, studentsPath := proxy.DefaultPaths()
@@ -166,9 +166,9 @@ func main() {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
-		case "student":
+		case "user":
 			if len(os.Args) < 4 {
-				fmt.Println("Usage: airun proxy student <add|list|revoke|restore|import|export> [name]")
+				fmt.Println("Usage: airun proxy user <add|list|revoke|restore|import|export> [name]")
 				os.Exit(1)
 			}
 			action := os.Args[3]
@@ -180,7 +180,7 @@ func main() {
 			switch action {
 			case "add":
 				if arg == "" {
-					fmt.Fprintln(os.Stderr, "Usage: airun proxy student add <name>")
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy user add <name>")
 					os.Exit(1)
 				}
 				perr = proxy.StudentAdd(studentsPath, arg)
@@ -188,26 +188,26 @@ func main() {
 				perr = proxy.StudentList(studentsPath)
 			case "revoke":
 				if arg == "" {
-					fmt.Fprintln(os.Stderr, "Usage: airun proxy student revoke <name>")
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy user revoke <name>")
 					os.Exit(1)
 				}
 				perr = proxy.StudentRevoke(studentsPath, arg)
 			case "restore":
 				if arg == "" {
-					fmt.Fprintln(os.Stderr, "Usage: airun proxy student restore <name>")
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy user restore <name>")
 					os.Exit(1)
 				}
 				perr = proxy.StudentRestore(studentsPath, arg)
 			case "import":
 				if arg == "" {
-					fmt.Fprintln(os.Stderr, "Usage: airun proxy student import <file>")
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy user import <file>")
 					os.Exit(1)
 				}
 				perr = proxy.StudentImport(studentsPath, arg)
 			case "export":
 				perr = proxy.StudentExport(studentsPath)
 			default:
-				fmt.Fprintf(os.Stderr, "Unknown student action: %s\n", action)
+				fmt.Fprintf(os.Stderr, "Unknown user action: %s\n", action)
 				os.Exit(1)
 			}
 			if perr != nil {
@@ -355,12 +355,12 @@ Usage:
   airun proxy init                             Create proxy config
   airun proxy serve                            Start proxy server
   airun proxy serve --port 9090                Start on custom port
-  airun proxy student add <name>               Add student
-  airun proxy student list                     List students
-  airun proxy student revoke <name>            Revoke student access
-  airun proxy student restore <name>           Restore student access
-  airun proxy student import <file>            Bulk import students
-  airun proxy student export                   Export student tokens
+  airun proxy user add <name>                   Add user
+  airun proxy user list                        List users
+  airun proxy user revoke <name>               Revoke user access
+  airun proxy user restore <name>              Restore user access
+  airun proxy user import <file>               Bulk import users
+  airun proxy user export                      Export user tokens
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache

@@ -221,11 +221,11 @@ airun keys default <provider>               Change default provider
 airun keys add remote                       Connect to a remote proxy
 airun proxy init                            Create proxy config
 airun proxy serve                           Start proxy server
-airun proxy student add <name>              Add student
-airun proxy student list                    List students
-airun proxy student revoke <name>           Revoke student access
-airun proxy student import <file>           Bulk import students
-airun proxy student export                  Export student tokens
+airun proxy user add <name>                 Add user
+airun proxy user list                       List users
+airun proxy user revoke <name>              Revoke user access
+airun proxy user import <file>              Bulk import users
+airun proxy user export                     Export user tokens
 airun init                                  Interactive global setup
 airun rebuild                               Rebuild Docker image
 airun rebuild --no-cache                    Rebuild without cache
@@ -261,9 +261,9 @@ All providers expose the Anthropic Messages API natively — no translation laye
 
 ## Proxy
 
-`airun proxy` runs an authenticated API proxy that lets you share model access without sharing API keys. Deploy it on a server, generate per-student tokens, and students connect via `airun keys add remote`.
+`airun proxy` runs an authenticated API proxy that lets you share model access without sharing API keys. Deploy it on a server, generate per-user tokens, and users connect via `airun keys add remote`.
 
-### Teacher workflow
+### Admin workflow
 
 ```bash
 # 1. Build and upload to your server
@@ -274,21 +274,21 @@ scp bin/airun-linux root@your-server:/usr/local/bin/airun
 ssh root@your-server "airun proxy init"
 # Edit ~/proxy.yaml to add provider API keys
 
-# 3. Add students
-ssh root@your-server "airun proxy student add 'Ivanov'"
+# 3. Add users
+ssh root@your-server "airun proxy user add 'Ivanov'"
 #   Ivanov: sk-ai-a1b2c3d4...
 
 # 4. Bulk import from a file (one name per line)
-ssh root@your-server "airun proxy student import students.txt"
+ssh root@your-server "airun proxy user import users.txt"
 
 # 5. Start the proxy
 ssh root@your-server "airun proxy serve"
 # [proxy] Listening on :8080
 # [proxy] Providers: 3 (5 models: glm-5.1, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
-# [proxy] Students: 15 active
+# [proxy] Users: 15 active
 ```
 
-### Student workflow
+### User workflow
 
 ```bash
 airun keys add remote
@@ -304,12 +304,12 @@ airun shell    # all requests go through the proxy
 ### How it works
 
 ```
-Student (airun)                Proxy server               Provider (Z.AI, MiniMax, Kimi)
+User (airun)                   Proxy server               Provider (Z.AI, MiniMax, Kimi)
      |                              |                              |
      |-- POST /v1/messages -------->|                              |
-     |   x-api-key: sk-ai-...      |                              |
-     |                              |-- Auth (student token)       |
-     |                              |-- Rate limit (per-student)   |
+     |   x-api-key: sk-ai-...       |                              |
+     |                              |-- Auth (user token)          |
+     |                              |-- Rate limit (per-user)      |
      |                              |-- Route (model → provider)   |
      |                              |                              |
      |                              |-- POST /v1/messages -------->|
@@ -327,7 +327,7 @@ The proxy only replaces `x-api-key` and `User-Agent` headers. Everything else �
 ```yaml
 # ~/proxy.yaml
 listen: ":8080"
-rpm: 0                # 0 = no limit; >0 = per-student requests per minute
+rpm: 0                # 0 = no limit; >0 = per-user requests per minute
 user_agent: "claude-cli/2.1.80 (external, cli)"
 
 providers:
@@ -344,7 +344,7 @@ providers:
       - MiniMax-M2.7
 ```
 
-Students are stored in `~/students.json`, managed via `airun proxy student` commands.
+Users are stored in `~/students.json`, managed via `airun proxy user` commands.
 
 ## Profiles
 
@@ -397,8 +397,8 @@ agent-runtime/
 │   ├── envfile/                  Temp env-file for credential security
 │   ├── history/                  Run history storage
 │   ├── keys/                    Key management (add, remove, test, list)
-│   ├── proxy/                   API proxy server with student auth
-│   │   └── students/            Student CRUD, token generation
+│   ├── proxy/                   API proxy server with user auth
+│   │   └── students/            User CRUD, token generation
 │   ├── monitor/                  Container status (docker ps)
 │   ├── prereq/                   Prerequisite checks
 │   ├── profile/                  YAML profile loader
@@ -447,8 +447,8 @@ Running `airun` natively on Windows (without WSL) will hit several issues:
 - [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
 - [ ] Anthropic API as a first-party provider
 - [ ] Container init from profile (auto-install plugins, npm/pip packages)
-- [ ] Proxy: auto-reload students on file change (without SIGHUP)
-- [ ] Proxy: per-student daily usage limits and quotas
+- [ ] Proxy: auto-reload users on file change (without SIGHUP)
+- [ ] Proxy: per-user daily usage limits and quotas
 
 ## License
 

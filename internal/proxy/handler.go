@@ -114,7 +114,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	if len(token) > 10 {
 		masked = token[:10] + "..."
 	}
-	log.Printf("[proxy] student=%s token=%s model=%s latency=%dms",
+	log.Printf("[proxy] user=%s token=%s model=%s latency=%dms",
 		name, masked, req.Model, latency.Milliseconds())
 }
 

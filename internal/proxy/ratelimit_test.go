@@ -8,22 +8,22 @@ import (
 func TestRateLimiterAllow(t *testing.T) {
 	rl := NewRateLimiter(5)
 	for i := 0; i < 5; i++ {
-		if !rl.Allow("student1") {
+		if !rl.Allow("user1") {
 			t.Fatalf("request %d should be allowed", i+1)
 		}
 	}
-	if rl.Allow("student1") {
+	if rl.Allow("user1") {
 		t.Error("6th request should be denied")
 	}
-	if !rl.Allow("student2") {
-		t.Error("student2 should be allowed")
+	if !rl.Allow("user2") {
+		t.Error("user2 should be allowed")
 	}
 }
 
 func TestRateLimiterZeroDisabled(t *testing.T) {
 	rl := NewRateLimiter(0)
 	for i := 0; i < 1000; i++ {
-		if !rl.Allow("student1") {
+		if !rl.Allow("user1") {
 			t.Fatalf("request %d should be allowed with rpm=0", i+1)
 		}
 	}

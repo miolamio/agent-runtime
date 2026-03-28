@@ -29,7 +29,7 @@ func ForwardRequest(w http.ResponseWriter, r *http.Request, baseURL, apiKey, use
 		return
 	}
 
-	// Copy all headers from student request
+	// Copy all headers from incoming request
 	for key, vals := range r.Header {
 		for _, v := range vals {
 			upReq.Header.Add(key, v)

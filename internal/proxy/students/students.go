@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Student represents a registered student with an API token.
+// Student represents a registered user with an API token.
 type Student struct {
 	Name      string    `json:"name"`
 	Token     string    `json:"token"`
@@ -16,7 +16,7 @@ type Student struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Manager handles CRUD operations on a list of students persisted to a JSON file.
+// Manager handles CRUD operations on a list of users persisted to a JSON file.
 type Manager struct {
 	path     string
 	students []Student
@@ -31,7 +31,7 @@ func New(path string) *Manager {
 	return m
 }
 
-// Load reads students from the JSON file on disk.
+// Load reads users from the JSON file on disk.
 func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -51,7 +51,7 @@ func (m *Manager) Load() error {
 	return nil
 }
 
-// Save writes the current student list to the JSON file.
+// Save writes the current user list to the JSON file.
 func (m *Manager) Save() error {
 	data, err := json.MarshalIndent(m.students, "", "  ")
 	if err != nil {
@@ -60,14 +60,14 @@ func (m *Manager) Save() error {
 	return os.WriteFile(m.path, append(data, '\n'), 0600)
 }
 
-// Add creates a new student with a random token and persists the change.
-// Returns an error if a student with the same name already exists.
+// Add creates a new user with a random token and persists the change.
+// Returns an error if a user with the same name already exists.
 func (m *Manager) Add(name string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.students {
 		if s.Name == name {
-			return "", fmt.Errorf("student %q already exists", name)
+			return "", fmt.Errorf("user %q already exists", name)
 		}
 	}
 	tok, err := GenerateToken()
@@ -83,7 +83,7 @@ func (m *Manager) Add(name string) (string, error) {
 	return tok, nil
 }
 
-// Revoke deactivates a student by name.
+// Revoke deactivates a user by name.
 func (m *Manager) Revoke(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,10 +93,10 @@ func (m *Manager) Revoke(name string) error {
 			return m.Save()
 		}
 	}
-	return fmt.Errorf("student %q not found", name)
+	return fmt.Errorf("user %q not found", name)
 }
 
-// Restore reactivates a previously revoked student by name.
+// Restore reactivates a previously revoked user by name.
 func (m *Manager) Restore(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -106,17 +106,17 @@ func (m *Manager) Restore(name string) error {
 			return m.Save()
 		}
 	}
-	return fmt.Errorf("student %q not found", name)
+	return fmt.Errorf("user %q not found", name)
 }
 
-// FindByToken returns a pointer to the Student with the given token, or nil.
+// FindByToken returns a pointer to the user with the given token, or nil.
 func (m *Manager) FindByToken(token string) *Student {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.byToken[token]
 }
 
-// List returns a copy of all students.
+// List returns a copy of all users.
 func (m *Manager) List() []Student {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

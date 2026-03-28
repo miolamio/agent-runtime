@@ -70,7 +70,7 @@ var providers = []Provider{
 		Name:        "Remote",
 		RegisterURL: "",
 		Steps: []string{
-			"Get proxy URL and student API key from your instructor",
+			"Get proxy URL and API key from your admin",
 		},
 		BaseURL:    "",
 		Model:      "",

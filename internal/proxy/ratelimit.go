@@ -21,7 +21,7 @@ func NewRateLimiter(rpm int) *RateLimiter {
 	return &RateLimiter{rpm: rpm, buckets: make(map[string]*bucket)}
 }
 
-func (r *RateLimiter) Allow(studentToken string) bool {
+func (r *RateLimiter) Allow(userToken string) bool {
 	if r.rpm <= 0 {
 		return true
 	}
@@ -29,10 +29,10 @@ func (r *RateLimiter) Allow(studentToken string) bool {
 	defer r.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-rateLimitWindow)
-	b, ok := r.buckets[studentToken]
+	b, ok := r.buckets[userToken]
 	if !ok {
 		b = &bucket{}
-		r.buckets[studentToken] = b
+		r.buckets[userToken] = b
 	}
 	valid := b.times[:0]
 	for _, t := range b.times {

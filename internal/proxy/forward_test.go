@@ -28,7 +28,7 @@ func TestForwardRequest(t *testing.T) {
 
 	body := strings.NewReader(`{"model":"glm-4.7","messages":[]}`)
 	req := httptest.NewRequest("POST", "/v1/messages", body)
-	req.Header.Set("x-api-key", "student-token")
+	req.Header.Set("x-api-key", "user-token")
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("Content-Type", "application/json")
 

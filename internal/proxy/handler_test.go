@@ -17,7 +17,7 @@ func testSetup(t *testing.T) (*Handler, string) {
 	dir := t.TempDir()
 	studentsPath := filepath.Join(dir, "students.json")
 	mgr := students.New(studentsPath)
-	tok, _ := mgr.Add("TestStudent")
+	tok, _ := mgr.Add("TestUser")
 
 	cfg := &ProxyConfig{
 		Listen:    ":8080",

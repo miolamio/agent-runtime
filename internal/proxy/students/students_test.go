@@ -24,7 +24,7 @@ func TestAddAndFind(t *testing.T) {
 		t.Errorf("Name = %q, want Ivanov", s.Name)
 	}
 	if !s.Active {
-		t.Error("new student should be active")
+		t.Error("new user should be active")
 	}
 }
 
@@ -52,7 +52,7 @@ func TestRevoke(t *testing.T) {
 		t.Fatal("FindByToken returned nil after revoke")
 	}
 	if s.Active {
-		t.Error("revoked student should be inactive")
+		t.Error("revoked user should be inactive")
 	}
 }
 
@@ -65,7 +65,7 @@ func TestRestore(t *testing.T) {
 	mgr.Restore("Ivanov")
 	all := mgr.List()
 	if len(all) != 1 || !all[0].Active {
-		t.Error("restored student should be active")
+		t.Error("restored user should be active")
 	}
 }
 
@@ -80,7 +80,7 @@ func TestPersistence(t *testing.T) {
 	}
 	s := mgr2.FindByToken(tok)
 	if s == nil || s.Name != "Ivanov" {
-		t.Error("student not found after reload")
+		t.Error("user not found after reload")
 	}
 }
 
@@ -92,7 +92,7 @@ func TestFindByTokenInactive(t *testing.T) {
 	mgr.Revoke("Ivanov")
 	s := mgr.FindByToken(tok)
 	if s == nil {
-		t.Fatal("FindByToken should return inactive student")
+		t.Fatal("FindByToken should return inactive user")
 	}
 	if s.Active {
 		t.Error("should be inactive")

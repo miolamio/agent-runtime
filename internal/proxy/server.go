@@ -26,30 +26,30 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 	mgr := students.New(studentsPath)
 	handler := NewHandler(cfg, mgr)
 
-	// SIGHUP reloads students
+	// SIGHUP reloads users
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGHUP)
 	go func() {
 		for range sigs {
 			if err := mgr.Load(); err != nil {
-				log.Printf("[proxy] reload students error: %v", err)
+				log.Printf("[proxy] reload users error: %v", err)
 			} else {
-				log.Printf("[proxy] students reloaded (%d total)", len(mgr.List()))
+				log.Printf("[proxy] users reloaded (%d total)", len(mgr.List()))
 			}
 		}
 	}()
 
 	models := cfg.AllModels()
 	providerCount := len(cfg.Providers)
-	studentCount := len(mgr.List())
+	userCount := len(mgr.List())
 	rpmStr := "unlimited"
 	if cfg.RPM > 0 {
-		rpmStr = fmt.Sprintf("%d/min per student", cfg.RPM)
+		rpmStr = fmt.Sprintf("%d/min per user", cfg.RPM)
 	}
 
 	log.Printf("[proxy] Listening on %s", cfg.Listen)
 	log.Printf("[proxy] Providers: %d (%d models: %s)", providerCount, len(models), strings.Join(models, ", "))
-	log.Printf("[proxy] Students: %d active", studentCount)
+	log.Printf("[proxy] Users: %d active", userCount)
 	log.Printf("[proxy] Rate limit: %s", rpmStr)
 
 	return http.ListenAndServe(cfg.Listen, handler)
@@ -97,7 +97,7 @@ providers:
 	return nil
 }
 
-// StudentAdd adds a student and prints the token.
+// StudentAdd adds a user and prints the token.
 func StudentAdd(studentsPath, name string) error {
 	mgr := students.New(studentsPath)
 	tok, err := mgr.Add(name)
@@ -108,12 +108,12 @@ func StudentAdd(studentsPath, name string) error {
 	return nil
 }
 
-// StudentList prints all students.
+// StudentList prints all users.
 func StudentList(studentsPath string) error {
 	mgr := students.New(studentsPath)
 	all := mgr.List()
 	if len(all) == 0 {
-		fmt.Println("  No students.")
+		fmt.Println("  No users.")
 		return nil
 	}
 	fmt.Printf("\n  %-20s %-10s %s\n", "Name", "Status", "Token")
@@ -130,19 +130,19 @@ func StudentList(studentsPath string) error {
 	return nil
 }
 
-// StudentRevoke deactivates a student.
+// StudentRevoke deactivates a user.
 func StudentRevoke(studentsPath, name string) error {
 	mgr := students.New(studentsPath)
 	return mgr.Revoke(name)
 }
 
-// StudentRestore reactivates a student.
+// StudentRestore reactivates a user.
 func StudentRestore(studentsPath, name string) error {
 	mgr := students.New(studentsPath)
 	return mgr.Restore(name)
 }
 
-// StudentImport reads names from a file (one per line) and adds them.
+// StudentImport reads names from a file (one per line) and adds them as users.
 func StudentImport(studentsPath, listPath string) error {
 	data, err := os.ReadFile(listPath)
 	if err != nil {
@@ -164,11 +164,11 @@ func StudentImport(studentsPath, listPath string) error {
 		fmt.Printf("  %s: %s\n", name, tok)
 		count++
 	}
-	fmt.Printf("\n  Added %d students.\n", count)
+	fmt.Printf("\n  Added %d users.\n", count)
 	return nil
 }
 
-// StudentExport prints all active students with full tokens.
+// StudentExport prints all active users with full tokens.
 func StudentExport(studentsPath string) error {
 	mgr := students.New(studentsPath)
 	all := mgr.List()
