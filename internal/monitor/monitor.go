@@ -7,7 +7,7 @@ import (
 
 func ShowStatus() error {
 	cmd := exec.Command("docker", "ps",
-		"--filter", "ancestor=automatica-runtime",
+		"--filter", "ancestor=agent-runtime",
 		"--format", "table {{.Names}}\t{{.Status}}\t{{.CreatedAt}}\t{{.Image}}")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

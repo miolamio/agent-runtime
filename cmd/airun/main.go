@@ -9,12 +9,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/codegeek/automatica-agent-runtime/internal/config"
-	"github.com/codegeek/automatica-agent-runtime/internal/history"
-	"github.com/codegeek/automatica-agent-runtime/internal/monitor"
-	"github.com/codegeek/automatica-agent-runtime/internal/prereq"
-	"github.com/codegeek/automatica-agent-runtime/internal/runner"
-	"github.com/codegeek/automatica-agent-runtime/internal/setup"
+	"github.com/miolamio/agent-runtime/internal/config"
+	"github.com/miolamio/agent-runtime/internal/history"
+	"github.com/miolamio/agent-runtime/internal/monitor"
+	"github.com/miolamio/agent-runtime/internal/prereq"
+	"github.com/miolamio/agent-runtime/internal/runner"
+	"github.com/miolamio/agent-runtime/internal/setup"
 )
 
 const version = "0.3.0"
@@ -27,7 +27,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "--version", "-v":
-		fmt.Println("arun", version)
+		fmt.Println("airun", version)
 		return
 	case "--help", "-h":
 		printUsage()
@@ -51,8 +51,8 @@ func main() {
 		}
 		return
 	case "rebuild":
-		fmt.Println("[arun] Rebuilding automatica-runtime image...")
-		args := []string{"build", "-t", "automatica-runtime:latest"}
+		fmt.Println("[airun] Rebuilding agent-runtime image...")
+		args := []string{"build", "-t", "agent-runtime:latest"}
 		if len(os.Args) > 2 && os.Args[2] == "--no-cache" {
 			args = append(args, "--no-cache")
 		}
@@ -76,10 +76,10 @@ func main() {
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "[arun] rebuild failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[airun] rebuild failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("[arun] Rebuild complete: automatica-runtime:latest")
+		fmt.Println("[airun] Rebuild complete: agent-runtime:latest")
 		return
 	case "history":
 		records, err := history.List(20)
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// Parse run flags
-	fs := flag.NewFlagSet("arun", flag.ExitOnError)
+	fs := flag.NewFlagSet("airun", flag.ExitOnError)
 	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
@@ -184,7 +184,7 @@ func runShell(args []string) {
 }
 
 func runCheck() {
-	fmt.Println("AUTOMATICA Agent Runtime — Check")
+	fmt.Println("Agent Runtime — Check")
 	fmt.Println()
 
 	// Prerequisites
@@ -199,7 +199,7 @@ func runCheck() {
 		fmt.Printf("Config error: %v\n", err)
 		return
 	}
-	fmt.Println("Config (~/.automatica.env):")
+	fmt.Println("Config (~/.airun.env):")
 	fmt.Println(cfg.Show())
 	fmt.Println()
 
@@ -207,34 +207,34 @@ func runCheck() {
 }
 
 func printUsage() {
-	fmt.Print(`arun — AUTOMATICA Agent Runtime CLI v` + version + `
+	fmt.Print(`airun — Agent Runtime CLI v` + version + `
 
 Usage:
-  arun "prompt"                              Run agent task
-  arun -p dev "prompt"                       Run with profile (skills, settings)
-  arun --provider mm "prompt"                Run with specific provider
-  arun shell                                 Interactive Claude Code session
-  arun shell -p dev                          Interactive with profile
-  arun shell --mount /path/to/project        Interactive with project mounted
-  arun shell --provider mm                   Interactive with MiniMax
-  arun --loop --max-loops N "prompt"         Autonomous loop mode
-  arun --output /tmp/out "prompt"            Export workspace after run
-  arun --parallel --agent "n:prompt" [...]   Parallel agents
-  arun history                               Show recent run history
-  arun init                                  Interactive global setup
-  arun rebuild                               Rebuild docker image
-  arun rebuild --no-cache                    Rebuild without cache
-  arun --status                              Show running agents
-  arun --check                               Show config and prerequisites
-  arun --version                             Show version
+  airun "prompt"                              Run agent task
+  airun -p dev "prompt"                       Run with profile (skills, settings)
+  airun --provider mm "prompt"                Run with specific provider
+  airun shell                                 Interactive Claude Code session
+  airun shell -p dev                          Interactive with profile
+  airun shell --mount /path/to/project        Interactive with project mounted
+  airun shell --provider mm                   Interactive with MiniMax
+  airun --loop --max-loops N "prompt"         Autonomous loop mode
+  airun --output /tmp/out "prompt"            Export workspace after run
+  airun --parallel --agent "n:prompt" [...]   Parallel agents
+  airun history                               Show recent run history
+  airun init                                  Interactive global setup
+  airun rebuild                               Rebuild docker image
+  airun rebuild --no-cache                    Rebuild without cache
+  airun --status                              Show running agents
+  airun --check                               Show config and prerequisites
+  airun --version                             Show version
 
 Flags:
   -p, --profile    Profile name (loads skills, settings, provider)
   --provider       Provider override: z/zai | m/mm/minimax
   --output         Export workspace to this directory after run
 
-Config: ~/.automatica.env (workspace, API keys, provider, mode)
-Profiles: ~/automatica-profiles/*.yaml
+Config: ~/.airun.env (workspace, API keys, provider, mode)
+Profiles: ~/airun-profiles/*.yaml
 Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7)
 `)
 }

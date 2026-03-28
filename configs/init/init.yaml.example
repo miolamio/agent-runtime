@@ -1,5 +1,5 @@
-# AUTOMATICA Container Init Manifest
-# Mount at /home/user/.automatica/init.yaml inside the container
+# Agent Runtime Container Init Manifest
+# Mount at /home/user/.airun/init.yaml inside the container
 
 npm_packages:
   - "prettier"

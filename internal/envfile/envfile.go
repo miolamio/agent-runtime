@@ -8,7 +8,7 @@ import (
 )
 
 func Write(envVars []string) (string, error) {
-	f, err := os.CreateTemp(os.TempDir(), ".arun-*.env")
+	f, err := os.CreateTemp(os.TempDir(), ".airun-*.env")
 	if err != nil {
 		return "", fmt.Errorf("cannot create temp env file: %w", err)
 	}
@@ -27,7 +27,7 @@ func Write(envVars []string) (string, error) {
 }
 
 func Cleanup(path string) {
-	if path != "" && strings.HasPrefix(filepath.Base(path), ".arun-") {
+	if path != "" && strings.HasPrefix(filepath.Base(path), ".airun-") {
 		os.Remove(path)
 	}
 }

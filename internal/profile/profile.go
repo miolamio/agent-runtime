@@ -20,7 +20,7 @@ type Profile struct {
 
 func Load(name string) (*Profile, error) {
 	usr, _ := user.Current()
-	path := filepath.Join(usr.HomeDir, "automatica-profiles", name+".yaml")
+	path := filepath.Join(usr.HomeDir, "airun-profiles", name+".yaml")
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -41,7 +41,7 @@ func Load(name string) (*Profile, error) {
 
 func List() ([]string, error) {
 	usr, _ := user.Current()
-	dir := filepath.Join(usr.HomeDir, "automatica-profiles")
+	dir := filepath.Join(usr.HomeDir, "airun-profiles")
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -60,7 +60,7 @@ func List() ([]string, error) {
 // SkillPaths returns host paths for listed skills.
 func (p *Profile) SkillPaths() []string {
 	usr, _ := user.Current()
-	base := filepath.Join(usr.HomeDir, "automatica-skills")
+	base := filepath.Join(usr.HomeDir, "airun-skills")
 	var paths []string
 	for _, s := range p.Skills {
 		path := filepath.Join(base, s)

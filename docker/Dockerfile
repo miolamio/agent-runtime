@@ -1,6 +1,6 @@
-# AUTOMATICA Agent Runtime — Docker image for Claude Code agents
-# Build: docker build -t automatica-runtime:latest docker/
-# Usage: arun "prompt" | arun shell
+# Agent Runtime — Docker image for Claude Code agents
+# Build: docker build -t agent-runtime:latest docker/
+# Usage: airun "prompt" | airun shell
 
 FROM buildpack-deps:bookworm-scm
 
@@ -41,6 +41,10 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 USER ${USERNAME}
 RUN curl -fsSL "https://claude.ai/install.sh" | bash
 USER root
+
+# ── SSH known hosts (fetched at build time) ──
+RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \
+    > /etc/ssh/ssh_known_hosts 2>/dev/null
 
 # ── Default config ──
 COPY --chown=${USERNAME}:${USERNAME} settings.json /home/${USERNAME}/.claude-init/settings.json

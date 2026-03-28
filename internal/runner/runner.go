@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/codegeek/automatica-agent-runtime/internal/config"
-	"github.com/codegeek/automatica-agent-runtime/internal/envfile"
-	"github.com/codegeek/automatica-agent-runtime/internal/history"
-	"github.com/codegeek/automatica-agent-runtime/internal/profile"
+	"github.com/miolamio/agent-runtime/internal/config"
+	"github.com/miolamio/agent-runtime/internal/envfile"
+	"github.com/miolamio/agent-runtime/internal/history"
+	"github.com/miolamio/agent-runtime/internal/profile"
 )
 
 type RunOpts struct {
@@ -37,7 +37,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		if err != nil {
 			return fmt.Errorf("profile: %w", err)
 		}
-		fmt.Fprintf(os.Stderr, "[arun] profile=%s (%s)\n", prof.Name, prof.Description)
+		fmt.Fprintf(os.Stderr, "[airun] profile=%s (%s)\n", prof.Name, prof.Description)
 
 		extraVolumes, settingsTmp, err = profileMounts(prof)
 		if err != nil {
@@ -72,12 +72,12 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	}
 
 	if opts.Interactive {
-		fmt.Fprintf(os.Stderr, "[arun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
+		fmt.Fprintf(os.Stderr, "[airun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
 		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile}, provider, model, extraVolumes)
 	}
 
 	// Fix 2: log actual mount, not config.Workspace
-	fmt.Fprintf(os.Stderr, "[arun] provider=%s model=%s workspace=%s\n", provider, model, mount)
+	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
 	if opts.Output != "" {
 		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile}, provider, model, extraVolumes)
@@ -87,7 +87,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	imageName := "automatica-runtime:latest"
+	imageName := "agent-runtime:latest"
 
 	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
 	if err != nil {
@@ -118,7 +118,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 		args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
 	}
 
-	fmt.Fprintf(os.Stderr, "[arun] docker %s --env-file %s %s\n",
+	fmt.Fprintf(os.Stderr, "[airun] docker %s --env-file %s %s\n",
 		args[0]+" "+args[1], envfile.MaskLog(envPath), imageName)
 
 	if opts.Interactive {
@@ -156,16 +156,16 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	}
 	history.Save(rec, outputBuf.String())
 
-	fmt.Fprintf(os.Stderr, "[arun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
 		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
-	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
+	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
 
 	return err
 }
 
 func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	imageName := "automatica-runtime:latest"
-	containerName := fmt.Sprintf("arun-export-%d", time.Now().Unix())
+	imageName := "agent-runtime:latest"
+	containerName := fmt.Sprintf("airun-export-%d", time.Now().Unix())
 
 	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
 	if err != nil {
@@ -182,7 +182,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	}
 	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
 
-	fmt.Fprintf(os.Stderr, "[arun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
+	fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
 	}
@@ -203,9 +203,9 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	os.MkdirAll(opts.Output, 0755)
 	cpCmd := exec.Command("docker", "cp", containerName+":/workspace/.", opts.Output)
 	if cpOut, err := cpCmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "[arun] warning: docker cp failed: %s\n", string(cpOut))
+		fmt.Fprintf(os.Stderr, "[airun] warning: docker cp failed: %s\n", string(cpOut))
 	} else {
-		fmt.Fprintf(os.Stderr, "[arun] exported workspace to %s\n", opts.Output)
+		fmt.Fprintf(os.Stderr, "[airun] exported workspace to %s\n", opts.Output)
 	}
 
 	exec.Command("docker", "rm", containerName).Run()
@@ -222,9 +222,9 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	}
 	history.Save(rec, outputBuf.String())
 
-	fmt.Fprintf(os.Stderr, "[arun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
 		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
-	fmt.Fprintf(os.Stderr, "[arun] log: %s\n", rec.RunDir)
+	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
 
 	return runErr
 }
@@ -241,7 +241,7 @@ func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, e
 		if err != nil {
 			return nil, "", fmt.Errorf("marshal settings: %w", err)
 		}
-		f, err := os.CreateTemp(os.TempDir(), ".arun-settings-*.json")
+		f, err := os.CreateTemp(os.TempDir(), ".airun-settings-*.json")
 		if err != nil {
 			return nil, "", fmt.Errorf("create settings temp file: %w", err)
 		}

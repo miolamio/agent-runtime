@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# AUTOMATICA Container Init Script
-# Runs as clawker post-init inside the container.
-# Reads manifest from /home/user/.automatica/init.yaml (mounted or embedded).
+# Agent Runtime Container Init Script
+# Runs as post-init inside the container.
+# Reads manifest from /home/user/.airun/init.yaml (mounted or embedded).
 
-MANIFEST="${AUTOMATICA_INIT_MANIFEST:-/home/user/.automatica/init.yaml}"
+MANIFEST="${ARUN_INIT_MANIFEST:-/home/user/.airun/init.yaml}"
 SKILLS_DIR="/home/user/.claude/skills"
 AGENTS_DIR="/home/user/.claude/agents"
 COMMANDS_DIR="/home/user/.claude/commands"
 
-log() { echo "[automatica-init] $*"; }
+log() { echo "[airun-init] $*"; }
 
 if [[ ! -f "$MANIFEST" ]]; then
   log "No init manifest found at $MANIFEST — skipping custom init"

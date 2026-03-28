@@ -24,7 +24,7 @@ type RunRecord struct {
 
 func runsDir() string {
 	usr, _ := user.Current()
-	return filepath.Join(usr.HomeDir, ".automatica", "runs")
+	return filepath.Join(usr.HomeDir, ".airun", "runs")
 }
 
 func Save(rec RunRecord, output string) error {

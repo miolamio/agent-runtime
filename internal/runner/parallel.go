@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/codegeek/automatica-agent-runtime/internal/config"
+	"github.com/miolamio/agent-runtime/internal/config"
 )
 
 type AgentSpec struct {

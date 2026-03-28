@@ -16,10 +16,10 @@ type Config struct {
 	SkillsDir string
 	AgentsDir string
 
-	// From .automatica.env
-	Workspace string // AUTOMATICA_WORKSPACE
-	Mode      string // AUTOMATICA_MODE (snapshot|bind)
-	Provider  string // AUTOMATICA_PROVIDER (zai|minimax)
+	// From .airun.env
+	Workspace string // ARUN_WORKSPACE
+	Mode      string // ARUN_MODE (snapshot|bind)
+	Provider  string // ARUN_PROVIDER (zai|minimax)
 
 	// Z.AI
 	ZaiAPIKey    string
@@ -43,13 +43,13 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 	home := usr.HomeDir
-	envFile := filepath.Join(home, ".automatica.env")
+	envFile := filepath.Join(home, ".airun.env")
 
 	cfg := &Config{
 		Home:      home,
 		EnvFile:   envFile,
-		SkillsDir: filepath.Join(home, "automatica-skills"),
-		AgentsDir: filepath.Join(home, "automatica-agents"),
+		SkillsDir: filepath.Join(home, "airun-skills"),
+		AgentsDir: filepath.Join(home, "airun-agents"),
 		// Defaults
 		Workspace:      filepath.Join(home, "src"),
 		Mode:           "snapshot",
@@ -65,7 +65,7 @@ func Load() (*Config, error) {
 
 	if err := cfg.loadEnvFile(envFile); err != nil {
 		// Not fatal — use defaults
-		fmt.Fprintf(os.Stderr, "[arun] warning: %v (using defaults)\n", err)
+		fmt.Fprintf(os.Stderr, "[airun] warning: %v (using defaults)\n", err)
 	}
 
 	return cfg, nil
@@ -92,11 +92,11 @@ func (c *Config) loadEnvFile(path string) error {
 		val := strings.TrimSpace(parts[1])
 
 		switch key {
-		case "AUTOMATICA_WORKSPACE":
+		case "ARUN_WORKSPACE":
 			c.Workspace = val
-		case "AUTOMATICA_MODE":
+		case "ARUN_MODE":
 			c.Mode = val
-		case "AUTOMATICA_PROVIDER":
+		case "ARUN_PROVIDER":
 			c.Provider = val
 		case "ZAI_API_KEY":
 			c.ZaiAPIKey = val

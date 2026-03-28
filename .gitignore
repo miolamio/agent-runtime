@@ -1,6 +1,6 @@
 # Binaries
 /bin/
-/dist/
+/airun
 *.exe
 
 # Go
@@ -28,3 +28,11 @@ docker-compose.override.yml
 # Python
 __pycache__/
 *.pyc
+
+# Development docs (not part of the distributed project)
+/.development/
+/docs/plans/
+/CLAUDE.md
+
+# Skills library (separate from agent-runtime)
+/.claude/skills/
