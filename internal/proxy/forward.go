@@ -35,9 +35,11 @@ func ForwardRequest(w http.ResponseWriter, r *http.Request, baseURL, apiKey, use
 			upReq.Header.Add(key, v)
 		}
 	}
-	// Override only these
+	// Override auth and user-agent; remove Authorization to prevent
+	// the student's Bearer token from reaching the upstream provider
 	upReq.Header.Set("x-api-key", apiKey)
 	upReq.Header.Set("User-Agent", userAgent)
+	upReq.Header.Del("Authorization")
 
 	resp, err := forwardClient.Do(upReq)
 	if err != nil {

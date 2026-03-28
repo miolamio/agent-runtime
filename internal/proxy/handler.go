@@ -105,7 +105,13 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
+	// Extract token the same way as ServeHTTP (x-api-key or Bearer)
 	token := r.Header.Get("x-api-key")
+	if token == "" {
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+	}
 	student := h.students.FindByToken(token)
 	name := "unknown"
 	if student != nil {
