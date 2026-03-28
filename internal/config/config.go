@@ -168,8 +168,8 @@ func (c *Config) isMinimax() bool {
 	return NormalizeProvider(c.Provider) == "minimax"
 }
 
-// ContainerEnv returns env vars to pass into the container.
-func (c *Config) ContainerEnv(provider string) []string {
+// ContainerEnvWithModel returns env vars with optional model override.
+func (c *Config) ContainerEnvWithModel(provider, modelOverride string) []string {
 	if provider == "" {
 		provider = c.Provider
 	}
@@ -193,6 +193,9 @@ func (c *Config) ContainerEnv(provider string) []string {
 		apiKey = c.ZaiAPIKey
 		model = c.ZaiModel
 	}
+	if modelOverride != "" {
+		model = modelOverride
+	}
 	env := []string{
 		"ANTHROPIC_BASE_URL=" + baseURL,
 		"ANTHROPIC_AUTH_TOKEN=" + apiKey,
@@ -204,6 +207,11 @@ func (c *Config) ContainerEnv(provider string) []string {
 		env = append(env, "ENABLE_TOOL_SEARCH=false")
 	}
 	return env
+}
+
+// ContainerEnv returns env vars to pass into the container (no model override).
+func (c *Config) ContainerEnv(provider string) []string {
+	return c.ContainerEnvWithModel(provider, "")
 }
 
 func (c *Config) Show() string {

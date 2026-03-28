@@ -18,8 +18,9 @@ import (
 
 type RunOpts struct {
 	Prompt      string
-	Provider    string // z/zai | m/mm/minimax (overrides config)
+	Provider    string // z/zai | m/mm/minimax | k/kimi | r/remote
 	Profile     string // profile name (loads skills, settings, provider)
+	Model       string // model override (e.g. kimi-k2.5, glm-5.1)
 	Loop        bool
 	MaxLoops    int
 	Name        string
@@ -57,9 +58,19 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		provider = config.NormalizeProvider(cfg.Provider)
 	}
 
-	model := cfg.ZaiModel
-	if provider == "minimax" {
-		model = cfg.MinimaxModel
+	// Resolve model: CLI flag > config default for provider
+	model := opts.Model
+	if model == "" {
+		switch provider {
+		case "minimax":
+			model = cfg.MinimaxModel
+		case "kimi":
+			model = cfg.KimiModel
+		case "remote":
+			model = cfg.RemoteDefaultModel
+		default:
+			model = cfg.ZaiModel
+		}
 	}
 
 	// Fix 2: mount = pwd (not config.Workspace)
@@ -89,7 +100,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
 	imageName := "agent-runtime:latest"
 
-	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
 	if err != nil {
 		return err
 	}
@@ -167,7 +178,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	imageName := "agent-runtime:latest"
 	containerName := fmt.Sprintf("airun-export-%d", time.Now().Unix())
 
-	envPath, err := envfile.Write(cfg.ContainerEnv(provider))
+	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
 	if err != nil {
 		return err
 	}

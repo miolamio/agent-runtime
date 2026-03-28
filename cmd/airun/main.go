@@ -144,9 +144,15 @@ func main() {
 				os.Exit(1)
 			}
 			kerr = keys.SetDefault(cfg.EnvFile, arg)
+		case "model":
+			if arg == "" {
+				fmt.Fprintln(os.Stderr, "Usage: airun keys model <model-name>")
+				os.Exit(1)
+			}
+			kerr = keys.SetModel(cfg.EnvFile, arg)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown keys subcommand: %s\n", subcmd)
-			fmt.Println("Usage: airun keys <list|add|remove|test|default> [provider]")
+			fmt.Println("Usage: airun keys <list|add|remove|test|default|model> [arg]")
 			os.Exit(1)
 		}
 		if kerr != nil {
@@ -233,7 +239,9 @@ func main() {
 
 	// Parse run flags
 	fs := flag.NewFlagSet("airun", flag.ExitOnError)
-	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
+	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
+	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.1)")
+	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
@@ -281,6 +289,7 @@ func main() {
 	opts := runner.RunOpts{
 		Prompt:   prompt,
 		Provider: *provider,
+		Model:    *modelFlag,
 		Profile:  *profileName,
 		Loop:     *loop,
 		MaxLoops: *maxLoops,
@@ -295,7 +304,9 @@ func main() {
 
 func runShell(args []string) {
 	fs := flag.NewFlagSet("shell", flag.ExitOnError)
-	provider := fs.String("provider", "", "Provider: zai (default) | minimax")
+	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
+	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.1)")
+	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
@@ -310,6 +321,7 @@ func runShell(args []string) {
 	opts := runner.RunOpts{
 		Interactive: true,
 		Provider:    *provider,
+		Model:       *modelFlag,
 		Profile:     *profileName,
 		Mount:       *mount,
 	}
@@ -349,8 +361,10 @@ Usage:
   airun "prompt"                              Run agent task
   airun -p dev "prompt"                       Run with profile (skills, settings)
   airun --provider mm "prompt"                Run with specific provider
+  airun --model kimi-k2.5 "prompt"            Run with specific model
   airun shell                                 Interactive Claude Code session
   airun shell -p dev                          Interactive with profile
+  airun shell --model kimi-k2.5               Interactive with specific model
   airun shell --mount /path/to/project        Interactive with project mounted
   airun shell --provider mm                   Interactive with MiniMax
   airun --loop --max-loops N "prompt"         Autonomous loop mode
@@ -362,6 +376,7 @@ Usage:
   airun keys remove <provider>                 Remove provider key
   airun keys test [provider]                   Validate keys via API call
   airun keys default <provider>                Change default provider
+  airun keys model <model>                    Change default model
   airun proxy init                             Create proxy config
   airun proxy serve                            Start proxy server
   airun proxy serve --port 9090                Start on custom port
@@ -381,7 +396,8 @@ Usage:
 
 Flags:
   -p, --profile    Profile name (loads skills, settings, provider)
-  --provider       Provider override: z/zai | m/mm/minimax | k/kimi
+  --provider       Provider override: z/zai | m/mm/minimax | k/kimi | r/remote
+  -m, --model      Model override (e.g. kimi-k2.5, glm-5.1, MiniMax-M2.7)
   --output         Export workspace to this directory after run
 
 Config: ~/.airun.env (workspace, API keys, provider, mode)

@@ -252,6 +252,54 @@ func SetDefault(envPath, alias string) error {
 	return nil
 }
 
+// SetModel changes the default model for the current provider.
+func SetModel(envPath, model string) error {
+	kv, err := ReadAllEnvKeys(envPath)
+	if err != nil {
+		return err
+	}
+	provider := kv["ARUN_PROVIDER"]
+	if provider == "" {
+		provider = "zai"
+	}
+
+	// Determine which env key to update
+	var envKey string
+	switch provider {
+	case "remote":
+		// Validate model is in REMOTE_MODELS list
+		remoteModels := kv["REMOTE_MODELS"]
+		if remoteModels != "" {
+			found := false
+			for _, m := range strings.Split(remoteModels, ",") {
+				if strings.TrimSpace(m) == model {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("model %q not available (available: %s)", model, remoteModels)
+			}
+		}
+		envKey = "REMOTE_DEFAULT_MODEL"
+	case "zai":
+		envKey = "ZAI_MODEL"
+	case "minimax":
+		envKey = "MINIMAX_MODEL"
+	case "kimi":
+		envKey = "KIMI_MODEL"
+	default:
+		return fmt.Errorf("unknown provider: %s", provider)
+	}
+
+	old := kv[envKey]
+	if err := UpdateEnvKey(envPath, envKey, model); err != nil {
+		return err
+	}
+	fmt.Printf("  Default model changed: %s -> %s (provider: %s)\n", old, model, provider)
+	return nil
+}
+
 func maskKey(key string) string {
 	if len(key) < 8 {
 		return "***"
