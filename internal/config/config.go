@@ -37,6 +37,12 @@ type Config struct {
 	KimiBaseURL string
 	KimiModel   string
 
+	// Remote proxy
+	RemoteBaseURL      string
+	RemoteAPIKey       string
+	RemoteModels       string // comma-separated
+	RemoteDefaultModel string
+
 	// Container
 	APITimeout    string
 	DisableTraffic string
@@ -125,6 +131,14 @@ func (c *Config) loadEnvFile(path string) error {
 			c.KimiBaseURL = val
 		case "KIMI_MODEL":
 			c.KimiModel = val
+		case "REMOTE_BASE_URL":
+			c.RemoteBaseURL = val
+		case "REMOTE_API_KEY":
+			c.RemoteAPIKey = val
+		case "REMOTE_MODELS":
+			c.RemoteModels = val
+		case "REMOTE_DEFAULT_MODEL":
+			c.RemoteDefaultModel = val
 		case "API_TIMEOUT_MS":
 			c.APITimeout = val
 		case "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":
@@ -141,6 +155,8 @@ func NormalizeProvider(p string) string {
 		return "minimax"
 	case "k", "kimi":
 		return "kimi"
+	case "r", "remote":
+		return "remote"
 	case "z", "zai", "":
 		return "zai"
 	default:
@@ -168,6 +184,10 @@ func (c *Config) ContainerEnv(provider string) []string {
 		baseURL = c.KimiBaseURL
 		apiKey = c.KimiAPIKey
 		model = c.KimiModel
+	case "remote":
+		baseURL = c.RemoteBaseURL
+		apiKey = c.RemoteAPIKey
+		model = c.RemoteDefaultModel
 	default:
 		baseURL = c.ZaiBaseURL
 		apiKey = c.ZaiAPIKey
@@ -193,16 +213,22 @@ func (c *Config) Show() string {
 		}
 		return key[:4] + "..." + key[len(key)-4:]
 	}
+	remoteDisplay := c.RemoteDefaultModel
+	if remoteDisplay == "" {
+		remoteDisplay = "(not configured)"
+	}
 	return fmt.Sprintf(`  Workspace:  %s
   Mode:       %s
   Provider:   %s
   Z.AI:       %s (key: %s)
   MiniMax:    %s (key: %s)
   Kimi:       %s (key: %s)
+  Remote:     %s (key: %s)
   Timeout:    %s ms`,
 		c.Workspace, c.Mode, c.Provider,
 		c.ZaiModel, masked(c.ZaiAPIKey),
 		c.MinimaxModel, masked(c.MinimaxAPIKey),
 		c.KimiModel, masked(c.KimiAPIKey),
+		remoteDisplay, masked(c.RemoteAPIKey),
 		c.APITimeout)
 }

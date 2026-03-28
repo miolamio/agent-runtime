@@ -3,9 +3,12 @@ package keys
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 // List prints all configured keys with masking.
@@ -45,6 +48,9 @@ func List(envPath string) error {
 
 // Add guides the user through adding a key for a provider.
 func Add(envPath, alias string) error {
+	if strings.ToLower(alias) == "remote" || strings.ToLower(alias) == "r" {
+		return AddRemote(envPath)
+	}
 	p := ProviderByAlias(alias)
 	if p == nil {
 		return fmt.Errorf("unknown provider: %q (use zai, minimax, or kimi)", alias)
@@ -219,4 +225,107 @@ func maskKey(key string) string {
 		return "***"
 	}
 	return key[:4] + "..." + key[len(key)-4:]
+}
+
+// AddRemote guides through connecting to a remote proxy.
+func AddRemote(envPath string) error {
+	reader := bufio.NewReader(os.Stdin)
+
+	existing, _ := ReadEnvKey(envPath, "REMOTE_API_KEY")
+	if existing != "" {
+		fmt.Printf("\n  Remote proxy already configured: %s\n", maskKey(existing))
+		fmt.Print("  Reconfigure? [y/N] ")
+		answer, _ := reader.ReadString('\n')
+		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
+			return nil
+		}
+	}
+
+	fmt.Println("\n  --- Remote Proxy ---")
+	fmt.Println("  Get proxy URL and API key from your instructor.")
+	fmt.Println()
+
+	fmt.Print("  Proxy URL (e.g. http://server:8080): ")
+	proxyURL, _ := reader.ReadString('\n')
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		fmt.Println("  Skipped.")
+		return nil
+	}
+
+	fmt.Print("  API key: ")
+	apiKey, _ := reader.ReadString('\n')
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		fmt.Println("  Skipped.")
+		return nil
+	}
+
+	// Fetch models
+	fmt.Print("\n  Fetching models... ")
+	models, err := FetchRemoteModels(proxyURL, apiKey)
+	if err != nil {
+		fmt.Printf("! %v\n", err)
+		return err
+	}
+	fmt.Printf("OK (%d models)\n\n", len(models))
+
+	for _, m := range models {
+		fmt.Printf("  [x] %s\n", m)
+	}
+
+	defaultModel := models[0]
+	if len(models) > 1 {
+		fmt.Printf("\n  Default model [%s]: ", defaultModel)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(answer)
+		if answer != "" {
+			defaultModel = answer
+		}
+	}
+
+	// Save
+	UpdateEnvKey(envPath, "REMOTE_BASE_URL", proxyURL)
+	UpdateEnvKey(envPath, "REMOTE_API_KEY", apiKey)
+	UpdateEnvKey(envPath, "REMOTE_MODELS", strings.Join(models, ","))
+	UpdateEnvKey(envPath, "REMOTE_DEFAULT_MODEL", defaultModel)
+
+	fmt.Printf("\n  Remote proxy configured: %s (%d models)\n", proxyURL, len(models))
+	fmt.Printf("  Default model: %s\n\n", defaultModel)
+	return nil
+}
+
+// FetchRemoteModels calls GET /v1/models on the proxy.
+func FetchRemoteModels(baseURL, apiKey string) ([]string, error) {
+	url := strings.TrimRight(baseURL, "/") + "/v1/models"
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("x-api-key", apiKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect to proxy: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("proxy returned HTTP %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("parse models: %w", err)
+	}
+	var models []string
+	for _, m := range result.Data {
+		models = append(models, m.ID)
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models available")
+	}
+	return models, nil
 }

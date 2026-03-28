@@ -65,6 +65,19 @@ var providers = []Provider{
 		EnvBaseURL: "KIMI_BASE_URL",
 		EnvModel:   "KIMI_MODEL",
 	},
+	{
+		ID:          "remote",
+		Name:        "Remote",
+		RegisterURL: "",
+		Steps: []string{
+			"Get proxy URL and student API key from your instructor",
+		},
+		BaseURL:    "",
+		Model:      "",
+		EnvKey:     "REMOTE_API_KEY",
+		EnvBaseURL: "REMOTE_BASE_URL",
+		EnvModel:   "REMOTE_DEFAULT_MODEL",
+	},
 }
 
 // AllProviders returns every registered provider.
@@ -85,6 +98,8 @@ func ProviderByAlias(alias string) *Provider {
 		idx = 1
 	case "k", "kimi":
 		idx = 2
+	case "r", "remote":
+		idx = 3
 	default:
 		return nil
 	}
