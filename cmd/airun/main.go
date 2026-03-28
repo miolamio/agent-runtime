@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/miolamio/agent-runtime/internal/config"
 	"github.com/miolamio/agent-runtime/internal/history"
@@ -55,8 +56,17 @@ func main() {
 	case "rebuild":
 		fmt.Println("[airun] Rebuilding agent-runtime image...")
 		args := []string{"build", "-t", "agent-runtime:latest"}
-		if len(os.Args) > 2 && os.Args[2] == "--no-cache" {
+		rebuildFlags := map[string]bool{}
+		for _, a := range os.Args[2:] {
+			rebuildFlags[a] = true
+		}
+		if rebuildFlags["--no-cache"] {
 			args = append(args, "--no-cache")
+		}
+		if rebuildFlags["--fresh"] {
+			// Bust the Claude Code install cache to get the latest version
+			args = append(args, "--build-arg", fmt.Sprintf("CLAUDE_BUST_CACHE=%d", time.Now().Unix()))
+			fmt.Println("[airun] --fresh: will reinstall Claude Code CLI")
 		}
 		// Find docker/ directory with our Dockerfile
 		dockerDir := "docker"
@@ -364,6 +374,7 @@ Usage:
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache
+  airun rebuild --fresh                       Reinstall Claude Code CLI (latest version)
   airun --status                              Show running agents
   airun --check                               Show config and prerequisites
   airun --version                             Show version

@@ -7,6 +7,8 @@ FROM buildpack-deps:bookworm-scm
 ARG USERNAME=claude
 ARG GIT_DELTA_VERSION=0.18.2
 ARG TZ=UTC
+# Pass --build-arg CLAUDE_BUST_CACHE=$(date +%s) to force Claude Code reinstall
+ARG CLAUDE_BUST_CACHE=1
 
 ENV TERM=xterm-256color \
     COLORTERM=truecolor \
@@ -38,8 +40,9 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -t default -p git -p fzf
 
 # ── Claude Code CLI (install as claude user so it lands in /home/claude/.local/bin) ──
+# Use CLAUDE_BUST_CACHE build-arg to force reinstall: --build-arg CLAUDE_BUST_CACHE=$(date +%s)
 USER ${USERNAME}
-RUN curl -fsSL "https://claude.ai/install.sh" | bash
+RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" && curl -fsSL "https://claude.ai/install.sh" | bash
 USER root
 
 # ── SSH known hosts (fetched at build time) ──

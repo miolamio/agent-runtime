@@ -38,22 +38,36 @@ if [ -x "${_HOME}/.airun/post-init.sh" ]; then
     gosu "$_USER" "${_HOME}/.airun/post-init.sh" || true
 fi
 
-# ── Skip Claude Code login prompt ──
+# ── Skip Claude Code login / onboarding prompt ──
+# Claude Code re-triggers onboarding when lastOnboardingVersion < installed version.
+# We must set lastOnboardingVersion >= the installed version.
+#
+# Detect version from the npm package metadata (avoids running `claude` which
+# could itself trigger the onboarding flow before .claude.json exists).
 CLAUDE_JSON="${_HOME}/.claude.json"
-if [ ! -f "$CLAUDE_JSON" ]; then
-    USER_ID=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
-    cat > "$CLAUDE_JSON" <<CJEOF
+INSTALLED_VER=$(jq -r '.version // empty' "${_HOME}/.claude/local/package.json" 2>/dev/null \
+    || jq -r '.version // empty' "${_HOME}/.local/lib/node_modules/@anthropic-ai/claude-code/package.json" 2>/dev/null \
+    || echo "")
+# Fallback: run claude --version (safe because we write .claude.json immediately after)
+if [ -z "$INSTALLED_VER" ]; then
+    INSTALLED_VER=$(gosu "$_USER" claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "99.0.0")
+fi
+
+# Always regenerate — the file lives in the container's ephemeral layer.
+USER_ID=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
+cat > "$CLAUDE_JSON" <<CJEOF
 {
   "numStartups": 184,
   "autoUpdaterStatus": "disabled",
   "userID": "${USER_ID}",
   "hasCompletedOnboarding": true,
-  "lastOnboardingVersion": "1.0.17",
+  "hasTrustDialogAccepted": true,
+  "lastOnboardingVersion": "${INSTALLED_VER}",
   "projects": {}
 }
 CJEOF
-    chown "${_USER}:${_USER}" "$CLAUDE_JSON"
-fi
+chown "${_USER}:${_USER}" "$CLAUDE_JSON"
+echo "[airun] claude.json: onboarding=${INSTALLED_VER}" >&2
 
 # ── Ready signal ──
 echo "[airun] ready ts=$(date +%s)" >&2
