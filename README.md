@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="airun-logo.jpg" alt="airun" width="480">
+</p>
+
 # Agent Runtime
 
 A CLI tool for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents inside isolated Docker containers with multi-provider model routing.
@@ -18,7 +22,7 @@ Running Claude Code directly on your host works fine for interactive use, but au
 ### Step 1: Build the CLI
 
 ```bash
-git clone https://github.com/codegeek/agent-runtime.git
+git clone https://github.com/miolamio/agent-runtime.git
 cd agent-runtime
 go build -o bin/airun ./cmd/airun/
 ```
@@ -29,13 +33,13 @@ go build -o bin/airun ./cmd/airun/
 ./bin/airun init
 ```
 
-This does five things:
+The wizard walks you through provider selection:
 
-1. **Prompts for API keys** — asks for your Z.AI and MiniMax keys (you can skip either one)
-2. **Writes `~/.airun.env`** — the central configuration file (permissions: `600`)
-3. **Creates directories** — `~/airun-profiles/`, `~/airun-skills/`, `~/.airun/runs/`
-4. **Copies profile templates** — `default.yaml`, `dev.yaml`, `text.yaml` into `~/airun-profiles/`
-5. **Installs the binary** — copies `airun` to `~/.local/bin/` and adds it to your `PATH`
+1. **Choose providers** — select which providers to configure (Z.AI, MiniMax, Kimi), with links to sign-up pages
+2. **Enter API keys** — each key is validated via a live API call before saving
+3. **Set default provider** — pick which provider to use by default
+4. **Create directories** — `~/airun-profiles/`, `~/airun-skills/`, `~/.airun/runs/`
+5. **Install the binary** — copies `airun` to `~/.local/bin/` and adds it to your `PATH`
 
 After init completes, open a new shell (or `source ~/.zshrc`) so `airun` is available globally.
 
@@ -75,8 +79,22 @@ airun shell
 |----------|---------|--------------|
 | **Z.AI** | [z.ai](https://z.ai) | GLM-4.7 model via `api.z.ai/api/anthropic` |
 | **MiniMax** | [minimax.io](https://minimax.io) | MiniMax-M2.7 model via `api.minimax.io/anthropic` |
+| **Kimi** | [kimi.com](https://www.kimi.com/code/docs/en/) | Kimi K2.5 model via `api.kimi.com/coding/` |
 
-You can configure one provider or both. If both are configured, you switch between them with `--provider`.
+You can configure one, two, or all three. Switch between them with `--provider`.
+
+### Managing keys
+
+After initial setup, use `airun keys` to manage providers without re-running the full wizard:
+
+```bash
+airun keys list               # show configured keys (masked)
+airun keys add kimi            # guided setup: sign-up link, key input, API validation
+airun keys remove minimax      # remove a provider key
+airun keys test                # validate all configured keys via live API calls
+airun keys test kimi           # validate a specific key
+airun keys default kimi        # change default provider
+```
 
 ### Configuration file
 
@@ -90,7 +108,7 @@ You can create it with `airun init` (recommended) or write it manually:
 # ── General ──
 ARUN_WORKSPACE=/Users/you/src     # Default directory to mount into containers
 ARUN_MODE=snapshot                 # Mount mode: snapshot (copy) or bind (live)
-ARUN_PROVIDER=zai                  # Default provider: zai | minimax
+ARUN_PROVIDER=zai                  # Default provider: zai | minimax | kimi
 
 # ── Z.AI ──
 ZAI_API_KEY=sk-abc123...           # Your Z.AI API key
@@ -102,6 +120,11 @@ ZAI_HAIKU_MODEL=GLM-4.5-Air       # Fast model
 MINIMAX_API_KEY=mm-xyz789...       # Your MiniMax API key
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
 MINIMAX_MODEL=MiniMax-M2.7        # Primary model
+
+# ── Kimi (Moonshot AI) ──
+KIMI_API_KEY=sk-kimi-abc...        # Your Kimi API key
+KIMI_BASE_URL=https://api.kimi.com/coding/
+KIMI_MODEL=kimi-k2.5              # Primary model
 
 # ── Container ──
 API_TIMEOUT_MS=3000000                         # Request timeout (50 min)
@@ -116,13 +139,13 @@ The file is created with `chmod 600` permissions — only your user can read it.
 ~/.airun.env                          You store keys here (on host, chmod 600)
     |
     v
-airun CLI reads the file               Parses ZAI_API_KEY or MINIMAX_API_KEY
+airun CLI reads the file               Parses provider API key
     |
     v
 Temp env-file in /tmp                  Written with chmod 600, contains:
-    |                                    ANTHROPIC_BASE_URL=https://api.z.ai/...
-    |                                    ANTHROPIC_AUTH_TOKEN=sk-abc123...
-    |                                    ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7
+    |                                    ANTHROPIC_BASE_URL=https://...
+    |                                    ANTHROPIC_AUTH_TOKEN=sk-...
+    |                                    ANTHROPIC_DEFAULT_SONNET_MODEL=...
     v
 docker run --env-file /tmp/.airun-*.env
     |
@@ -147,9 +170,11 @@ airun "your prompt"
 # Use MiniMax for this run only
 airun --provider mm "your prompt"
 
+# Use Kimi
+airun --provider kimi "your prompt"
+
 # Short aliases work too
-airun --provider m "your prompt"
-airun --provider minimax "your prompt"
+airun --provider k "your prompt"
 ```
 
 ### Environment variable reference
@@ -158,7 +183,7 @@ airun --provider minimax "your prompt"
 |----------|----------|---------|-------------|
 | `ARUN_WORKSPACE` | No | `~/src` | Directory mounted into containers |
 | `ARUN_MODE` | No | `snapshot` | `snapshot` (copy) or `bind` (live mount) |
-| `ARUN_PROVIDER` | No | `zai` | Default provider (`zai` or `minimax`) |
+| `ARUN_PROVIDER` | No | `zai` | Default provider (`zai`, `minimax`, or `kimi`) |
 | `ZAI_API_KEY` | Yes* | — | Z.AI API key |
 | `ZAI_BASE_URL` | No | `https://api.z.ai/api/anthropic` | Z.AI endpoint |
 | `ZAI_MODEL` | No | `glm-4.7` | Z.AI primary model |
@@ -166,17 +191,20 @@ airun --provider minimax "your prompt"
 | `MINIMAX_API_KEY` | Yes* | — | MiniMax API key |
 | `MINIMAX_BASE_URL` | No | `https://api.minimax.io/anthropic` | MiniMax endpoint |
 | `MINIMAX_MODEL` | No | `MiniMax-M2.7` | MiniMax primary model |
+| `KIMI_API_KEY` | Yes* | — | Kimi API key |
+| `KIMI_BASE_URL` | No | `https://api.kimi.com/coding/` | Kimi endpoint |
+| `KIMI_MODEL` | No | `kimi-k2.5` | Kimi primary model |
 | `API_TIMEOUT_MS` | No | `3000000` | Request timeout in milliseconds |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | No | `1` | Disable telemetry |
 
-*At least one API key is required. You need `ZAI_API_KEY` to use Z.AI, `MINIMAX_API_KEY` to use MiniMax, or both.
+*At least one API key is required.
 
 ## Usage
 
 ```
 airun "prompt"                              Run agent task
 airun -p dev "prompt"                       Run with profile
-airun --provider mm "prompt"                Run with specific provider
+airun --provider kimi "prompt"              Run with specific provider
 airun shell                                 Interactive Claude Code session
 airun shell -p dev                          Interactive with profile
 airun shell --mount /path/to/project        Mount a specific directory
@@ -185,10 +213,17 @@ airun --output ./results "prompt"           Export workspace after run
 airun --parallel --agent "a1:task" \
      --agent "a2:task"                     Run agents in parallel
 airun history                               Show recent runs
-airun init                                  First-time setup
+airun keys list                             Show configured API keys
+airun keys add <provider>                   Add/replace key with guide
+airun keys remove <provider>                Remove provider key
+airun keys test [provider]                  Validate keys via API call
+airun keys default <provider>               Change default provider
+airun init                                  Interactive global setup
 airun rebuild                               Rebuild Docker image
-airun --check                               Verify configuration
-airun --status                              List running containers
+airun rebuild --no-cache                    Rebuild without cache
+airun --status                              Show running agents
+airun --check                               Show config and prerequisites
+airun --version                             Show version
 ```
 
 ### Running from any directory
@@ -204,6 +239,16 @@ airun --output ./results "Generate a report on the codebase"
 ```
 
 This creates the container, runs the task, copies `/workspace` to `./results`, and removes the container.
+
+## Providers
+
+| Alias | Provider | Endpoint | Default model | Context |
+|-------|----------|----------|---------------|---------|
+| `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-4.7 | — |
+| `m`, `mm`, `minimax` | MiniMax | `api.minimax.io/anthropic` | MiniMax-M2.7 | — |
+| `k`, `kimi` | Kimi (Moonshot AI) | `api.kimi.com/coding/` | Kimi K2.5 | 256K |
+
+All providers expose the Anthropic Messages API natively — no translation layer needed.
 
 ## Profiles
 
@@ -255,6 +300,7 @@ agent-runtime/
 │   ├── config/                   ~/.airun.env loader
 │   ├── envfile/                  Temp env-file for credential security
 │   ├── history/                  Run history storage
+│   ├── keys/                    Key management (add, remove, test, list)
 │   ├── monitor/                  Container status (docker ps)
 │   ├── prereq/                   Prerequisite checks
 │   ├── profile/                  YAML profile loader
@@ -303,7 +349,6 @@ Running `airun` natively on Windows (without WSL) will hit several issues:
 - [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
 - [ ] Anthropic API as a first-party provider
 - [ ] Container init from profile (auto-install plugins, npm/pip packages)
-- [ ] `airun init` — end-to-end test of the full setup flow
 - [ ] Squash run history into a single SQLite database
 
 ## License
