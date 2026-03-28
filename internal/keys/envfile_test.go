@@ -66,6 +66,20 @@ func TestUpdateEnvKeyAppends(t *testing.T) {
 	}
 }
 
+func TestReadEnvKeyWithEqualsInValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".airun.env")
+	os.WriteFile(path, []byte("URL=https://example.com/path?key=value\n"), 0600)
+
+	val, err := ReadEnvKey(path, "URL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "https://example.com/path?key=value" {
+		t.Errorf("ReadEnvKey URL = %q, want %q", val, "https://example.com/path?key=value")
+	}
+}
+
 func TestReadAllEnvKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".airun.env")

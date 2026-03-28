@@ -64,7 +64,9 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 			fmt.Printf("    Configure %s (%s)? [y/N] ", p.Name, p.RegisterURL)
 			answer, _ := reader.ReadString('\n')
 			if strings.TrimSpace(strings.ToLower(answer)) == "y" {
-				keys.Add(envFile, p.ID)
+				if err := keys.Add(envFile, p.ID); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: %v\n", err)
+				}
 			}
 		}
 
@@ -167,7 +169,9 @@ dirs:
 	// 6. Test connectivity
 	fmt.Println()
 	fmt.Println("  Testing provider connectivity...")
-	keys.Test(envFile, "")
+	if err := keys.Test(envFile, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: %v\n", err)
+	}
 
 	// 7. Summary
 	fmt.Println()

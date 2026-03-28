@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// ReadEnvKey reads a single key value from an env file.
 func ReadEnvKey(path, key string) (string, error) {
 	kv, err := ReadAllEnvKeys(path)
 	if err != nil {
@@ -15,6 +16,7 @@ func ReadEnvKey(path, key string) (string, error) {
 	return kv[key], nil
 }
 
+// ReadAllEnvKeys reads all key=value pairs from an env file, skipping comments and blank lines.
 func ReadAllEnvKeys(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -37,6 +39,7 @@ func ReadAllEnvKeys(path string) (map[string]string, error) {
 	return kv, scanner.Err()
 }
 
+// UpdateEnvKey replaces or appends a key=value pair in the env file.
 func UpdateEnvKey(path, key, value string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

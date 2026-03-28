@@ -69,20 +69,25 @@ var providers = []Provider{
 
 // AllProviders returns every registered provider.
 func AllProviders() []Provider {
-	return providers
+	result := make([]Provider, len(providers))
+	copy(result, providers)
+	return result
 }
 
 // ProviderByAlias resolves a short alias (e.g. "z", "mm", "k") or full ID
 // to the corresponding Provider. Returns nil if no match is found.
 func ProviderByAlias(alias string) *Provider {
+	var idx int
 	switch strings.ToLower(alias) {
 	case "z", "zai":
-		return &providers[0]
+		idx = 0
 	case "m", "mm", "minimax":
-		return &providers[1]
+		idx = 1
 	case "k", "kimi":
-		return &providers[2]
+		idx = 2
 	default:
 		return nil
 	}
+	p := providers[idx]
+	return &p
 }
