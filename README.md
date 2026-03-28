@@ -77,7 +77,7 @@ airun shell
 
 | Provider | Sign up | What you get |
 |----------|---------|--------------|
-| **Z.AI** | [z.ai](https://z.ai) | GLM-4.7 model via `api.z.ai/api/anthropic` |
+| **Z.AI** | [z.ai](https://z.ai) | GLM-5.1, GLM-4.7 models via `api.z.ai/api/anthropic` |
 | **MiniMax** | [minimax.io](https://minimax.io) | MiniMax-M2.7 model via `api.minimax.io/anthropic` |
 | **Kimi** | [kimi.com](https://www.kimi.com/code/docs/en/) | Kimi K2.5 model via `api.kimi.com/coding/` |
 
@@ -108,7 +108,7 @@ You can create it with `airun init` (recommended) or write it manually:
 # ── General ──
 ARUN_WORKSPACE=/Users/you/src     # Default directory to mount into containers
 ARUN_MODE=snapshot                 # Mount mode: snapshot (copy) or bind (live)
-ARUN_PROVIDER=zai                  # Default provider: zai | minimax | kimi
+ARUN_PROVIDER=zai                  # Default provider: zai | minimax | kimi | remote
 
 # ── Z.AI ──
 ZAI_API_KEY=sk-abc123...           # Your Z.AI API key
@@ -218,6 +218,14 @@ airun keys add <provider>                   Add/replace key with guide
 airun keys remove <provider>                Remove provider key
 airun keys test [provider]                  Validate keys via API call
 airun keys default <provider>               Change default provider
+airun keys add remote                       Connect to a remote proxy
+airun proxy init                            Create proxy config
+airun proxy serve                           Start proxy server
+airun proxy student add <name>              Add student
+airun proxy student list                    List students
+airun proxy student revoke <name>           Revoke student access
+airun proxy student import <file>           Bulk import students
+airun proxy student export                  Export student tokens
 airun init                                  Interactive global setup
 airun rebuild                               Rebuild Docker image
 airun rebuild --no-cache                    Rebuild without cache
@@ -244,11 +252,99 @@ This creates the container, runs the task, copies `/workspace` to `./results`, a
 
 | Alias | Provider | Endpoint | Default model | Context |
 |-------|----------|----------|---------------|---------|
-| `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-4.7 | — |
+| `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-5.1 | — |
 | `m`, `mm`, `minimax` | MiniMax | `api.minimax.io/anthropic` | MiniMax-M2.7 | — |
 | `k`, `kimi` | Kimi (Moonshot AI) | `api.kimi.com/coding/` | Kimi K2.5 | 256K |
+| `r`, `remote` | Remote proxy | configurable | configurable | — |
 
-All providers expose the Anthropic Messages API natively — no translation layer needed.
+All providers expose the Anthropic Messages API natively — no translation layer needed. The `remote` provider connects to an `airun proxy` instance (see below).
+
+## Proxy
+
+`airun proxy` runs an authenticated API proxy that lets you share model access without sharing API keys. Deploy it on a server, generate per-student tokens, and students connect via `airun keys add remote`.
+
+### Teacher workflow
+
+```bash
+# 1. Build and upload to your server
+GOOS=linux GOARCH=amd64 go build -o bin/airun-linux ./cmd/airun/
+scp bin/airun-linux root@your-server:/usr/local/bin/airun
+
+# 2. Initialize proxy config
+ssh root@your-server "airun proxy init"
+# Edit ~/proxy.yaml to add provider API keys
+
+# 3. Add students
+ssh root@your-server "airun proxy student add 'Ivanov'"
+#   Ivanov: sk-ai-a1b2c3d4...
+
+# 4. Bulk import from a file (one name per line)
+ssh root@your-server "airun proxy student import students.txt"
+
+# 5. Start the proxy
+ssh root@your-server "airun proxy serve"
+# [proxy] Listening on :8080
+# [proxy] Providers: 3 (5 models: glm-5.1, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
+# [proxy] Students: 15 active
+```
+
+### Student workflow
+
+```bash
+airun keys add remote
+#   Proxy URL: https://proxy.example.com
+#   API key: sk-ai-a1b2c3d4...
+#   Fetching models... OK (5 models)
+#   Default model: glm-5.1
+
+airun keys default remote
+airun shell    # all requests go through the proxy
+```
+
+### How it works
+
+```
+Student (airun)                Proxy server               Provider (Z.AI, MiniMax, Kimi)
+     |                              |                              |
+     |-- POST /v1/messages -------->|                              |
+     |   x-api-key: sk-ai-...      |                              |
+     |                              |-- Auth (student token)       |
+     |                              |-- Rate limit (per-student)   |
+     |                              |-- Route (model → provider)   |
+     |                              |                              |
+     |                              |-- POST /v1/messages -------->|
+     |                              |   x-api-key: real-key        |
+     |                              |   User-Agent: claude-cli/... |
+     |                              |                              |
+     |                              |<-------- response -----------|
+     |<-------- response -----------|                              |
+```
+
+The proxy only replaces `x-api-key` and `User-Agent` headers. Everything else — request body, streaming, response — passes through unchanged.
+
+### Proxy configuration
+
+```yaml
+# ~/proxy.yaml
+listen: ":8080"
+rpm: 0                # 0 = no limit; >0 = per-student requests per minute
+user_agent: "claude-cli/2.1.80 (external, cli)"
+
+providers:
+  zai:
+    base_url: "https://api.z.ai/api/anthropic"
+    api_key: "your-key"
+    models:
+      - glm-5.1
+      - glm-4.7
+  minimax:
+    base_url: "https://api.minimax.io/anthropic"
+    api_key: "your-key"
+    models:
+      - MiniMax-M2.7
+```
+
+Students are stored in `~/students.json`, managed via `airun proxy student` commands.
 
 ## Profiles
 
@@ -301,6 +397,8 @@ agent-runtime/
 │   ├── envfile/                  Temp env-file for credential security
 │   ├── history/                  Run history storage
 │   ├── keys/                    Key management (add, remove, test, list)
+│   ├── proxy/                   API proxy server with student auth
+│   │   └── students/            Student CRUD, token generation
 │   ├── monitor/                  Container status (docker ps)
 │   ├── prereq/                   Prerequisite checks
 │   ├── profile/                  YAML profile loader
@@ -349,7 +447,8 @@ Running `airun` natively on Windows (without WSL) will hit several issues:
 - [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
 - [ ] Anthropic API as a first-party provider
 - [ ] Container init from profile (auto-install plugins, npm/pip packages)
-- [ ] Squash run history into a single SQLite database
+- [ ] Proxy: auto-reload students on file change (without SIGHUP)
+- [ ] Proxy: per-student daily usage limits and quotas
 
 ## License
 
