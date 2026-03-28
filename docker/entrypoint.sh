@@ -41,7 +41,17 @@ fi
 # ── Skip Claude Code login prompt ──
 CLAUDE_JSON="${_HOME}/.claude.json"
 if [ ! -f "$CLAUDE_JSON" ]; then
-    echo '{"hasCompletedOnboarding":true}' > "$CLAUDE_JSON"
+    USER_ID=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
+    cat > "$CLAUDE_JSON" <<CJEOF
+{
+  "numStartups": 184,
+  "autoUpdaterStatus": "disabled",
+  "userID": "${USER_ID}",
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "1.0.17",
+  "projects": {}
+}
+CJEOF
     chown "${_USER}:${_USER}" "$CLAUDE_JSON"
 fi
 
