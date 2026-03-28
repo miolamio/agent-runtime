@@ -95,6 +95,20 @@ airun keys remove minimax         # remove provider key
 airun keys test                   # validate all keys
 airun keys test kimi              # validate specific key
 airun keys default kimi           # change default provider
+
+# Proxy server (teacher-side)
+airun proxy init                         # create proxy.yaml + students.json
+airun proxy serve                        # start proxy server
+airun proxy serve --port 9090            # custom port
+airun proxy student add "Ivanov"         # create student → token
+airun proxy student list                 # show all students
+airun proxy student revoke "Ivanov"      # deactivate student
+airun proxy student restore "Ivanov"     # reactivate student
+airun proxy student import list.txt      # bulk import
+airun proxy student export               # export name + token pairs
+
+# Remote proxy (student-side)
+airun keys add remote                    # connect to proxy with URL + token
 ```
 
 ## Agent Runtime — Configuration
