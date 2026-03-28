@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/miolamio/agent-runtime/internal/config"
@@ -70,6 +71,20 @@ func Run(cfg *config.Config, opts RunOpts) error {
 			model = cfg.RemoteDefaultModel
 		default:
 			model = cfg.ZaiModel
+		}
+	}
+
+	// Validate model against available list for remote provider
+	if provider == "remote" && cfg.RemoteModels != "" && opts.Model != "" {
+		found := false
+		for _, m := range strings.Split(cfg.RemoteModels, ",") {
+			if strings.TrimSpace(m) == opts.Model {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("model %q not available on remote proxy (available: %s)", opts.Model, cfg.RemoteModels)
 		}
 	}
 
