@@ -14,13 +14,19 @@ ENV TERM=xterm-256color \
     COLORTERM=truecolor \
     LANG=en_US.UTF-8 \
     CLAUDE_CONFIG_DIR=/home/${USERNAME}/.claude \
+    NODE_PATH=/usr/lib/node_modules \
     PATH=/home/${USERNAME}/.local/bin:/usr/local/bin:$PATH
 
-# ── System packages ──
+# ── System packages + Playwright/Chromium dependencies ──
 RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     ripgrep fd-find jq gosu locales zsh fzf \
+    # Playwright Chromium runtime dependencies
+    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+    libxkbcommon0 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    fonts-liberation fonts-noto-color-emoji \
     && locale-gen en_US.UTF-8
 
 # ── Non-root user ──
@@ -44,6 +50,28 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 USER ${USERNAME}
 RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" && curl -fsSL "https://claude.ai/install.sh" | bash
 USER root
+
+# ── Node.js LTS (for Playwright and skill scripts) ──
+ARG NODE_MAJOR=22
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Playwright + Chromium (headless) ──
+RUN npm install -g @playwright/cli playwright
+USER ${USERNAME}
+RUN cd /tmp && playwright-cli install \
+    && npx playwright install chromium
+USER root
+
+# ── Skills Marketplace (miolamio/agent-skills) ──
+ARG SKILLS_BUST_CACHE=1
+RUN echo "skills-cache-bust: ${SKILLS_BUST_CACHE}" \
+    && git clone --depth 1 https://github.com/miolamio/agent-skills.git /tmp/agent-skills \
+    && mkdir -p /home/${USERNAME}/.claude/skills \
+    && cp -r /tmp/agent-skills/skills/* /home/${USERNAME}/.claude/skills/ \
+    && rm -rf /tmp/agent-skills \
+    && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.claude/skills
 
 # ── SSH known hosts (fetched at build time) ──
 RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \
