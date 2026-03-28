@@ -195,7 +195,7 @@ func (c *Config) ContainerEnv(provider string) []string {
 	}
 	env := []string{
 		"ANTHROPIC_BASE_URL=" + baseURL,
-		"ANTHROPIC_AUTH_TOKEN=" + apiKey,
+		"ANTHROPIC_API_KEY=" + apiKey,
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=" + model,
 		"API_TIMEOUT_MS=" + c.APITimeout,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=" + c.DisableTraffic,

@@ -38,6 +38,13 @@ if [ -x "${_HOME}/.airun/post-init.sh" ]; then
     gosu "$_USER" "${_HOME}/.airun/post-init.sh" || true
 fi
 
+# ── Skip Claude Code login prompt ──
+CLAUDE_JSON="${_HOME}/.claude.json"
+if [ ! -f "$CLAUDE_JSON" ]; then
+    echo '{"hasCompletedOnboarding":true}' > "$CLAUDE_JSON"
+    chown "${_USER}:${_USER}" "$CLAUDE_JSON"
+fi
+
 # ── Ready signal ──
 echo "[airun] ready ts=$(date +%s)" >&2
 
