@@ -4,10 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
+
+	"github.com/miolamio/agent-runtime/internal/keys"
 )
 
 func Run() error {
@@ -18,11 +19,12 @@ func Run() error {
 	fmt.Println("Agent Runtime — Setup")
 	fmt.Println()
 
-	// 1. API Keys
 	envFile := filepath.Join(home, ".airun.env")
+	isNew := true
 	if _, err := os.Stat(envFile); err == nil {
+		isNew = false
 		fmt.Printf("  Config exists: %s\n", envFile)
-		fmt.Print("  Overwrite? [y/N] ")
+		fmt.Print("  Reconfigure keys? [y/N] ")
 		answer, _ := reader.ReadString('\n')
 		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
 			fmt.Println("  Keeping existing config.")
@@ -31,47 +33,73 @@ func Run() error {
 	}
 
 	{
-		fmt.Println()
-		fmt.Print("  Z.AI API key (enter to skip): ")
-		zaiKey, _ := reader.ReadString('\n')
-		zaiKey = strings.TrimSpace(zaiKey)
-
-		fmt.Print("  MiniMax API key (enter to skip): ")
-		mmKey, _ := reader.ReadString('\n')
-		mmKey = strings.TrimSpace(mmKey)
-
-		fmt.Print("  Kimi API key (enter to skip): ")
-		kimiKey, _ := reader.ReadString('\n')
-		kimiKey = strings.TrimSpace(kimiKey)
-
-		provider := "zai"
-		if zaiKey == "" && mmKey != "" {
-			provider = "minimax"
-		}
-		if zaiKey == "" && mmKey == "" && kimiKey != "" {
-			provider = "kimi"
-		}
-
-		content := fmt.Sprintf(`# Agent Runtime — Central Configuration
+		// Write base config if new
+		if isNew {
+			content := fmt.Sprintf(`# Agent Runtime — Central Configuration
 ARUN_WORKSPACE=%s
 ARUN_MODE=snapshot
-ARUN_PROVIDER=%s
-ZAI_API_KEY=%s
+ARUN_PROVIDER=zai
+ZAI_API_KEY=
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
 ZAI_MODEL=glm-4.7
 ZAI_HAIKU_MODEL=GLM-4.5-Air
-MINIMAX_API_KEY=%s
+MINIMAX_API_KEY=
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
 MINIMAX_MODEL=MiniMax-M2.7
-KIMI_API_KEY=%s
+KIMI_API_KEY=
 KIMI_BASE_URL=https://api.kimi.com/coding/
 KIMI_MODEL=kimi-k2.5
 API_TIMEOUT_MS=3000000
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-`, filepath.Join(home, "src"), provider, zaiKey, mmKey, kimiKey)
+`, filepath.Join(home, "src"))
+			os.WriteFile(envFile, []byte(content), 0600)
+		}
 
-		os.WriteFile(envFile, []byte(content), 0600)
-		fmt.Printf("  Written: %s\n", envFile)
+		// Provider selection
+		fmt.Println()
+		fmt.Println("  Select providers to configure:")
+		fmt.Println()
+		allProviders := keys.AllProviders()
+		for _, p := range allProviders {
+			fmt.Printf("    Configure %s (%s)? [y/N] ", p.Name, p.RegisterURL)
+			answer, _ := reader.ReadString('\n')
+			if strings.TrimSpace(strings.ToLower(answer)) == "y" {
+				keys.Add(envFile, p.ID)
+			}
+		}
+
+		// Set default provider
+		fmt.Println()
+		kv, _ := keys.ReadAllEnvKeys(envFile)
+		var configured []string
+		for _, p := range allProviders {
+			if kv[p.EnvKey] != "" {
+				configured = append(configured, p.ID)
+			}
+		}
+		if len(configured) > 0 {
+			current := kv["ARUN_PROVIDER"]
+			if current == "" {
+				current = configured[0]
+				keys.UpdateEnvKey(envFile, "ARUN_PROVIDER", current)
+			}
+			if len(configured) > 1 {
+				p := keys.ProviderByAlias(current)
+				name := current
+				if p != nil {
+					name = p.Name
+				}
+				fmt.Printf("  Default provider: %s\n", name)
+				fmt.Printf("  Change? [%s/N] ", strings.Join(configured, "/"))
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "" && answer != "n" {
+					keys.SetDefault(envFile, answer)
+				}
+			}
+		}
+
+		fmt.Printf("\n  Config written: %s\n", envFile)
 	}
 
 dirs:
@@ -139,38 +167,18 @@ dirs:
 	// 6. Test connectivity
 	fmt.Println()
 	fmt.Println("  Testing provider connectivity...")
-	testProviders()
+	keys.Test(envFile, "")
 
 	// 7. Summary
 	fmt.Println()
 	fmt.Println("Setup complete!")
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  airun --check              # verify config")
-	fmt.Println("  airun rebuild              # build docker image")
-	fmt.Println("  airun shell -p dev         # start interactive session")
-	fmt.Println("  airun -p dev \"prompt\"      # run agent task")
+	fmt.Println("  airun keys list               # see configured keys")
+	fmt.Println("  airun keys add <provider>      # add more providers")
+	fmt.Println("  airun --check                  # verify config")
+	fmt.Println("  airun rebuild                  # build docker image")
+	fmt.Println("  airun shell -p dev             # start interactive session")
 
 	return nil
-}
-
-func testProviders() {
-	// Simple connectivity test via curl
-	providers := []struct {
-		name string
-		url  string
-	}{
-		{"Z.AI", "https://api.z.ai/api/anthropic"},
-		{"MiniMax", "https://api.minimax.io/anthropic"},
-		{"Kimi", "https://api.kimi.com/coding/"},
-	}
-	for _, p := range providers {
-		cmd := exec.Command("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", p.url)
-		out, err := cmd.Output()
-		if err == nil && len(out) > 0 {
-			fmt.Printf("    %s (%s): %s\n", p.name, p.url, string(out))
-		} else {
-			fmt.Printf("    %s (%s): unreachable\n", p.name, p.url)
-		}
-	}
 }
