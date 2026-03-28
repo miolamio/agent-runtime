@@ -71,6 +71,7 @@ RUN chmod +x /tmp/seed-plugins.sh \
     && echo "plugins-cache-bust: ${PLUGINS_BUST_CACHE}" \
     && /tmp/seed-plugins.sh ${USERNAME} \
     && rm /tmp/seed-plugins.sh
+RUN date +%s > /etc/airun-build-id
 
 # ── SSH known hosts (fetched at build time) ──
 RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \

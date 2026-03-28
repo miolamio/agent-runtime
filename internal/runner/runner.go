@@ -17,6 +17,11 @@ import (
 	"github.com/miolamio/agent-runtime/internal/profile"
 )
 
+const (
+	stateVolumeName = "airun-claude-state"
+	stateMountPath  = "/home/claude/.claude"
+)
+
 type RunOpts struct {
 	Prompt      string
 	Provider    string // z/zai | m/mm/minimax | k/kimi | r/remote
@@ -28,6 +33,7 @@ type RunOpts struct {
 	Interactive bool   // -it mode, no prompt
 	Mount       string // explicit mount path (overrides config workspace)
 	Output      string // export workspace to this directory after run
+	NoState     bool   // disable persistent state volume (ephemeral)
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
@@ -99,17 +105,17 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	if opts.Interactive {
 		fmt.Fprintf(os.Stderr, "[airun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
-		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile}, provider, model, extraVolumes)
+		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
 	}
 
 	// Fix 2: log actual mount, not config.Workspace
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
 	if opts.Output != "" {
-		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile}, provider, model, extraVolumes)
+		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
 	}
 
-	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile}, provider, model, extraVolumes)
+	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
@@ -131,6 +137,9 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 
 	if opts.Mount != "" {
 		args = append(args, "-v", opts.Mount+":/workspace")
+	}
+	if !opts.NoState {
+		args = append(args, "-v", stateVolumeName+":"+stateMountPath)
 	}
 
 	for _, v := range extraVolumes {
@@ -202,6 +211,9 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
 	if opts.Mount != "" {
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
+	}
+	if !opts.NoState {
+		createArgs = append(createArgs, "-v", stateVolumeName+":"+stateMountPath)
 	}
 	for _, v := range extraVolumes {
 		createArgs = append(createArgs, "-v", v)

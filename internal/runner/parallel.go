@@ -33,6 +33,7 @@ func RunParallel(cfg *config.Config, agents []AgentSpec, provider string) error 
 				Prompt:   a.Prompt,
 				Provider: provider,
 				Name:     a.Name,
+				NoState:  true, // avoid concurrent volume corruption
 			}
 			if err := Run(cfg, opts); err != nil {
 				errors <- fmt.Errorf("agent %s failed: %w", a.Name, err)

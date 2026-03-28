@@ -47,6 +47,27 @@ func main() {
 	case "shell":
 		runShell(os.Args[2:])
 		return
+	case "state":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: airun state <info|reset>")
+			os.Exit(1)
+		}
+		switch os.Args[2] {
+		case "info":
+			cmd := exec.Command("docker", "volume", "inspect", "airun-claude-state")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Println("No state volume found. Will be created on first run.")
+			}
+		case "reset":
+			exec.Command("docker", "volume", "rm", "airun-claude-state").Run()
+			fmt.Println("[airun] state volume removed. Will be re-seeded on next run.")
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown state subcommand: %s\n", os.Args[2])
+			os.Exit(1)
+		}
+		return
 	case "init":
 		if err := setup.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -248,6 +269,7 @@ func main() {
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
 	name := fs.String("name", "", "Agent name")
 	output := fs.String("output", "", "Export workspace to this directory after run")
+	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
 	parallel := fs.Bool("parallel", false, "Run agents in parallel")
 	var agents []string
 	fs.Func("agent", "Agent spec 'name:prompt' (repeatable, use with --parallel)", func(s string) error {
@@ -295,6 +317,7 @@ func main() {
 		MaxLoops: *maxLoops,
 		Name:     *name,
 		Output:   *output,
+		NoState:  *noState,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -310,6 +333,7 @@ func runShell(args []string) {
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
+	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
 	fs.Parse(args)
 
 	cfg, err := config.Load()
@@ -324,6 +348,7 @@ func runShell(args []string) {
 		Model:       *modelFlag,
 		Profile:     *profileName,
 		Mount:       *mount,
+		NoState:     *noState,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -386,6 +411,8 @@ Usage:
   airun proxy user restore <name>              Restore user access
   airun proxy user import <file>               Bulk import users
   airun proxy user export                      Export user tokens
+  airun state info                              Show state volume details
+  airun state reset                             Reset state (re-seed from image)
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache
@@ -399,6 +426,7 @@ Flags:
   --provider       Provider override: z/zai | m/mm/minimax | k/kimi | r/remote
   -m, --model      Model override (e.g. kimi-k2.5, glm-5.1, MiniMax-M2.7)
   --output         Export workspace to this directory after run
+  --no-state       Disable persistent state (ephemeral container)
 
 Config: ~/.airun.env (workspace, API keys, provider, mode)
 Profiles: ~/airun-profiles/*.yaml

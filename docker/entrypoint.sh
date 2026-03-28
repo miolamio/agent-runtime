@@ -33,6 +33,23 @@ if [ -d "$INIT_DIR" ]; then
     fi
 fi
 
+# ── Track image build vs volume state ──
+IMAGE_BUILD_ID_FILE="/etc/airun-build-id"
+VOLUME_BUILD_ID_FILE="${CONFIG_DIR}/.image-build-id"
+if [ -f "$IMAGE_BUILD_ID_FILE" ]; then
+    IMAGE_BUILD_ID=$(cat "$IMAGE_BUILD_ID_FILE")
+    if [ -f "$VOLUME_BUILD_ID_FILE" ]; then
+        VOLUME_BUILD_ID=$(cat "$VOLUME_BUILD_ID_FILE")
+        if [ "$IMAGE_BUILD_ID" != "$VOLUME_BUILD_ID" ]; then
+            echo "[airun] warning: image updated (build ${IMAGE_BUILD_ID}) since state volume was created (build ${VOLUME_BUILD_ID})" >&2
+            echo "[airun] hint: run 'airun state reset' to re-seed from updated image" >&2
+        fi
+    else
+        echo "$IMAGE_BUILD_ID" > "$VOLUME_BUILD_ID_FILE"
+        chown "${_USER}:${_USER}" "$VOLUME_BUILD_ID_FILE"
+    fi
+fi
+
 # ── Seed plugin JSON configs (from build-time metadata) ──
 PLUGINS_DIR="${_HOME}/.claude/plugins"
 SEED_META="${PLUGINS_DIR}/.seed-metadata.json"
