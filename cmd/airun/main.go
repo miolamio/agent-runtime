@@ -11,6 +11,7 @@ import (
 
 	"github.com/miolamio/agent-runtime/internal/config"
 	"github.com/miolamio/agent-runtime/internal/history"
+	"github.com/miolamio/agent-runtime/internal/keys"
 	"github.com/miolamio/agent-runtime/internal/monitor"
 	"github.com/miolamio/agent-runtime/internal/prereq"
 	"github.com/miolamio/agent-runtime/internal/runner"
@@ -92,6 +93,55 @@ func main() {
 			return
 		}
 		fmt.Print(history.FormatTable(records))
+		return
+	case "keys":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: airun keys <list|add|remove|test|default> [provider]")
+			os.Exit(1)
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+			os.Exit(1)
+		}
+		subcmd := os.Args[2]
+		arg := ""
+		if len(os.Args) > 3 {
+			arg = os.Args[3]
+		}
+		var kerr error
+		switch subcmd {
+		case "list", "ls":
+			kerr = keys.List(cfg.EnvFile)
+		case "add":
+			if arg == "" {
+				fmt.Fprintln(os.Stderr, "Usage: airun keys add <provider>")
+				os.Exit(1)
+			}
+			kerr = keys.Add(cfg.EnvFile, arg)
+		case "remove", "rm":
+			if arg == "" {
+				fmt.Fprintln(os.Stderr, "Usage: airun keys remove <provider>")
+				os.Exit(1)
+			}
+			kerr = keys.Remove(cfg.EnvFile, arg)
+		case "test":
+			kerr = keys.Test(cfg.EnvFile, arg)
+		case "default":
+			if arg == "" {
+				fmt.Fprintln(os.Stderr, "Usage: airun keys default <provider>")
+				os.Exit(1)
+			}
+			kerr = keys.SetDefault(cfg.EnvFile, arg)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown keys subcommand: %s\n", subcmd)
+			fmt.Println("Usage: airun keys <list|add|remove|test|default> [provider]")
+			os.Exit(1)
+		}
+		if kerr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", kerr)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -221,6 +271,11 @@ Usage:
   airun --output /tmp/out "prompt"            Export workspace after run
   airun --parallel --agent "n:prompt" [...]   Parallel agents
   airun history                               Show recent run history
+  airun keys list                              Show configured API keys
+  airun keys add <provider>                    Add/replace key with guide
+  airun keys remove <provider>                 Remove provider key
+  airun keys test [provider]                   Validate keys via API call
+  airun keys default <provider>                Change default provider
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache
