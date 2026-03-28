@@ -183,7 +183,14 @@ func Test(envPath, alias string) error {
 			fmt.Printf("  %-10s ! No key configured\n", p.Name+":")
 			continue
 		}
-		result, err := ValidateKey(p.BaseURL, apiKey, p.Model)
+		baseURL := p.BaseURL
+		model := p.Model
+		// Remote provider reads URL and model from env, not from struct
+		if p.ID == "remote" {
+			baseURL = kv["REMOTE_BASE_URL"]
+			model = kv["REMOTE_DEFAULT_MODEL"]
+		}
+		result, err := ValidateKey(baseURL, apiKey, model)
 		if err != nil {
 			fmt.Printf("  %-10s ! %v\n", p.Name+":", err)
 		} else if !result.Valid {
@@ -242,7 +249,7 @@ func AddRemote(envPath string) error {
 	}
 
 	fmt.Println("\n  --- Remote Proxy ---")
-	fmt.Println("  Get proxy URL and API key from your instructor.")
+	fmt.Println("  Get proxy URL and API key from your admin.")
 	fmt.Println()
 
 	fmt.Print("  Proxy URL (e.g. http://server:8080): ")
