@@ -36,9 +36,15 @@ func NewHandler(cfg *ProxyConfig, mgr *students.Manager) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Accept token from x-api-key header or Authorization: Bearer header
 	token := r.Header.Get("x-api-key")
 	if token == "" {
-		jsonError(w, http.StatusUnauthorized, "missing x-api-key header")
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+	}
+	if token == "" {
+		jsonError(w, http.StatusUnauthorized, "missing x-api-key or Authorization header")
 		return
 	}
 	student := h.students.FindByToken(token)

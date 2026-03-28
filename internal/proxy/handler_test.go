@@ -63,6 +63,15 @@ func TestAuthInvalidToken(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized { t.Errorf("invalid token: status = %d, want 401", rec.Code) }
 }
 
+func TestAuthBearerToken(t *testing.T) {
+	h, tok := testSetup(t)
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK { t.Errorf("bearer auth: status = %d, want 200", rec.Code) }
+}
+
 func TestMessagesUnknownModel(t *testing.T) {
 	h, tok := testSetup(t)
 	body := `{"model":"unknown","messages":[{"role":"user","content":"hi"}]}`

@@ -54,7 +54,7 @@ if [ -z "$INSTALLED_VER" ]; then
 fi
 
 # Always regenerate — the file lives in the container's ephemeral layer.
-USER_ID=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n')
+USER_ID=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
 cat > "$CLAUDE_JSON" <<CJEOF
 {
   "numStartups": 184,
