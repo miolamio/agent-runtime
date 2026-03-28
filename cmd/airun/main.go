@@ -230,11 +230,11 @@ Usage:
 
 Flags:
   -p, --profile    Profile name (loads skills, settings, provider)
-  --provider       Provider override: z/zai | m/mm/minimax
+  --provider       Provider override: z/zai | m/mm/minimax | k/kimi
   --output         Export workspace to this directory after run
 
 Config: ~/.airun.env (workspace, API keys, provider, mode)
 Profiles: ~/airun-profiles/*.yaml
-Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7)
+Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7) | k/kimi (Kimi K2.5)
 `)
 }

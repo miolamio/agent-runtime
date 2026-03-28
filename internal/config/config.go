@@ -32,6 +32,11 @@ type Config struct {
 	MinimaxBaseURL string
 	MinimaxModel   string
 
+	// Kimi
+	KimiAPIKey  string
+	KimiBaseURL string
+	KimiModel   string
+
 	// Container
 	APITimeout    string
 	DisableTraffic string
@@ -59,6 +64,8 @@ func Load() (*Config, error) {
 		ZaiHaikuModel:  "GLM-4.5-Air",
 		MinimaxBaseURL: "https://api.minimax.io/anthropic",
 		MinimaxModel:   "MiniMax-M2.7",
+		KimiBaseURL:    "https://api.kimi.com/coding/",
+		KimiModel:      "kimi-k2.5",
 		APITimeout:     "3000000",
 		DisableTraffic: "1",
 	}
@@ -112,6 +119,12 @@ func (c *Config) loadEnvFile(path string) error {
 			c.MinimaxBaseURL = val
 		case "MINIMAX_MODEL":
 			c.MinimaxModel = val
+		case "KIMI_API_KEY":
+			c.KimiAPIKey = val
+		case "KIMI_BASE_URL":
+			c.KimiBaseURL = val
+		case "KIMI_MODEL":
+			c.KimiModel = val
 		case "API_TIMEOUT_MS":
 			c.APITimeout = val
 		case "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":
@@ -121,11 +134,13 @@ func (c *Config) loadEnvFile(path string) error {
 	return scanner.Err()
 }
 
-// NormalizeProvider resolves aliases: z/zai → zai, m/mm/minimax → minimax.
+// NormalizeProvider resolves aliases: z/zai → zai, m/mm/minimax → minimax, k/kimi → kimi.
 func NormalizeProvider(p string) string {
 	switch strings.ToLower(p) {
 	case "m", "mm", "minimax":
 		return "minimax"
+	case "k", "kimi":
+		return "kimi"
 	case "z", "zai", "":
 		return "zai"
 	default:
@@ -149,18 +164,26 @@ func (c *Config) ContainerEnv(provider string) []string {
 		baseURL = c.MinimaxBaseURL
 		apiKey = c.MinimaxAPIKey
 		model = c.MinimaxModel
+	case "kimi":
+		baseURL = c.KimiBaseURL
+		apiKey = c.KimiAPIKey
+		model = c.KimiModel
 	default:
 		baseURL = c.ZaiBaseURL
 		apiKey = c.ZaiAPIKey
 		model = c.ZaiModel
 	}
-	return []string{
+	env := []string{
 		"ANTHROPIC_BASE_URL=" + baseURL,
 		"ANTHROPIC_AUTH_TOKEN=" + apiKey,
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=" + model,
 		"API_TIMEOUT_MS=" + c.APITimeout,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=" + c.DisableTraffic,
 	}
+	if provider == "kimi" {
+		env = append(env, "ENABLE_TOOL_SEARCH=false")
+	}
+	return env
 }
 
 func (c *Config) Show() string {
@@ -175,9 +198,11 @@ func (c *Config) Show() string {
   Provider:   %s
   Z.AI:       %s (key: %s)
   MiniMax:    %s (key: %s)
+  Kimi:       %s (key: %s)
   Timeout:    %s ms`,
 		c.Workspace, c.Mode, c.Provider,
 		c.ZaiModel, masked(c.ZaiAPIKey),
 		c.MinimaxModel, masked(c.MinimaxAPIKey),
+		c.KimiModel, masked(c.KimiAPIKey),
 		c.APITimeout)
 }

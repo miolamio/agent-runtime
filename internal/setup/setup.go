@@ -40,9 +40,16 @@ func Run() error {
 		mmKey, _ := reader.ReadString('\n')
 		mmKey = strings.TrimSpace(mmKey)
 
+		fmt.Print("  Kimi API key (enter to skip): ")
+		kimiKey, _ := reader.ReadString('\n')
+		kimiKey = strings.TrimSpace(kimiKey)
+
 		provider := "zai"
 		if zaiKey == "" && mmKey != "" {
 			provider = "minimax"
+		}
+		if zaiKey == "" && mmKey == "" && kimiKey != "" {
+			provider = "kimi"
 		}
 
 		content := fmt.Sprintf(`# Agent Runtime — Central Configuration
@@ -56,9 +63,12 @@ ZAI_HAIKU_MODEL=GLM-4.5-Air
 MINIMAX_API_KEY=%s
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
 MINIMAX_MODEL=MiniMax-M2.7
+KIMI_API_KEY=%s
+KIMI_BASE_URL=https://api.kimi.com/coding/
+KIMI_MODEL=kimi-k2.5
 API_TIMEOUT_MS=3000000
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-`, filepath.Join(home, "src"), provider, zaiKey, mmKey)
+`, filepath.Join(home, "src"), provider, zaiKey, mmKey, kimiKey)
 
 		os.WriteFile(envFile, []byte(content), 0600)
 		fmt.Printf("  Written: %s\n", envFile)
@@ -152,6 +162,7 @@ func testProviders() {
 	}{
 		{"Z.AI", "https://api.z.ai/api/anthropic"},
 		{"MiniMax", "https://api.minimax.io/anthropic"},
+		{"Kimi", "https://api.kimi.com/coding/"},
 	}
 	for _, p := range providers {
 		cmd := exec.Command("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", p.url)
