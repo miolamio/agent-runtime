@@ -14,6 +14,7 @@ import (
 	"github.com/miolamio/agent-runtime/internal/keys"
 	"github.com/miolamio/agent-runtime/internal/monitor"
 	"github.com/miolamio/agent-runtime/internal/prereq"
+	"github.com/miolamio/agent-runtime/internal/proxy"
 	"github.com/miolamio/agent-runtime/internal/runner"
 	"github.com/miolamio/agent-runtime/internal/setup"
 )
@@ -140,6 +141,81 @@ func main() {
 		}
 		if kerr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", kerr)
+			os.Exit(1)
+		}
+		return
+	case "proxy":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: airun proxy <init|serve|student> [args]")
+			os.Exit(1)
+		}
+		configPath, studentsPath := proxy.DefaultPaths()
+		subcmd := os.Args[2]
+		switch subcmd {
+		case "init":
+			if err := proxy.Init(configPath, studentsPath); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		case "serve":
+			listen := ""
+			if len(os.Args) > 3 && os.Args[3] == "--port" && len(os.Args) > 4 {
+				listen = ":" + os.Args[4]
+			}
+			if err := proxy.Serve(configPath, studentsPath, listen); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+		case "student":
+			if len(os.Args) < 4 {
+				fmt.Println("Usage: airun proxy student <add|list|revoke|restore|import|export> [name]")
+				os.Exit(1)
+			}
+			action := os.Args[3]
+			arg := ""
+			if len(os.Args) > 4 {
+				arg = os.Args[4]
+			}
+			var perr error
+			switch action {
+			case "add":
+				if arg == "" {
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy student add <name>")
+					os.Exit(1)
+				}
+				perr = proxy.StudentAdd(studentsPath, arg)
+			case "list", "ls":
+				perr = proxy.StudentList(studentsPath)
+			case "revoke":
+				if arg == "" {
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy student revoke <name>")
+					os.Exit(1)
+				}
+				perr = proxy.StudentRevoke(studentsPath, arg)
+			case "restore":
+				if arg == "" {
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy student restore <name>")
+					os.Exit(1)
+				}
+				perr = proxy.StudentRestore(studentsPath, arg)
+			case "import":
+				if arg == "" {
+					fmt.Fprintln(os.Stderr, "Usage: airun proxy student import <file>")
+					os.Exit(1)
+				}
+				perr = proxy.StudentImport(studentsPath, arg)
+			case "export":
+				perr = proxy.StudentExport(studentsPath)
+			default:
+				fmt.Fprintf(os.Stderr, "Unknown student action: %s\n", action)
+				os.Exit(1)
+			}
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", perr)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown proxy subcommand: %s\n", subcmd)
 			os.Exit(1)
 		}
 		return
@@ -276,6 +352,15 @@ Usage:
   airun keys remove <provider>                 Remove provider key
   airun keys test [provider]                   Validate keys via API call
   airun keys default <provider>                Change default provider
+  airun proxy init                             Create proxy config
+  airun proxy serve                            Start proxy server
+  airun proxy serve --port 9090                Start on custom port
+  airun proxy student add <name>               Add student
+  airun proxy student list                     List students
+  airun proxy student revoke <name>            Revoke student access
+  airun proxy student restore <name>           Restore student access
+  airun proxy student import <file>            Bulk import students
+  airun proxy student export                   Export student tokens
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache
