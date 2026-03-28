@@ -277,6 +277,35 @@ agent-runtime/
     └── commands/                 Example commands
 ```
 
+## Platform support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **macOS** | Supported | Primary development platform |
+| **Linux** | Supported | Native Docker, no issues expected |
+| **Windows + WSL2** | Should work | WSL2 is Linux under the hood |
+| **Windows native** | Not yet supported | See below |
+
+### Windows limitations
+
+Running `airun` natively on Windows (without WSL) will hit several issues:
+
+- **File permissions** — `chmod 600` on the temp env-file is a no-op on Windows, leaving credentials world-readable
+- **Docker volume paths** — `C:\Users\...:/workspace` mounts are fragile in Docker Desktop
+- **`airun init`** — writes to `~/.zshrc`, which doesn't exist; needs PowerShell `$PROFILE` support
+- **`airun shell`** — interactive TTY behaves differently in cmd.exe/PowerShell
+- **Shell scripts** — `scripts/setup.sh` requires bash
+
+**Recommendation:** on Windows, use WSL2 with Docker Desktop's WSL backend.
+
+## Roadmap
+
+- [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
+- [ ] Anthropic API as a first-party provider
+- [ ] Container init from profile (auto-install plugins, npm/pip packages)
+- [ ] `airun init` — end-to-end test of the full setup flow
+- [ ] Squash run history into a single SQLite database
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
