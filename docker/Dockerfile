@@ -64,14 +64,13 @@ RUN cd /tmp && playwright-cli install \
     && npx playwright install chromium
 USER root
 
-# ── Skills Marketplace (miolamio/agent-skills) ──
-ARG SKILLS_BUST_CACHE=1
-RUN echo "skills-cache-bust: ${SKILLS_BUST_CACHE}" \
-    && git clone --depth 1 https://github.com/miolamio/agent-skills.git /tmp/agent-skills \
-    && mkdir -p /home/${USERNAME}/.claude/skills \
-    && cp -r /tmp/agent-skills/skills/* /home/${USERNAME}/.claude/skills/ \
-    && rm -rf /tmp/agent-skills \
-    && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.claude/skills
+# ── Plugins & Skills Marketplace ──
+ARG PLUGINS_BUST_CACHE=1
+COPY seed-plugins.sh /tmp/seed-plugins.sh
+RUN chmod +x /tmp/seed-plugins.sh \
+    && echo "plugins-cache-bust: ${PLUGINS_BUST_CACHE}" \
+    && /tmp/seed-plugins.sh ${USERNAME} \
+    && rm /tmp/seed-plugins.sh
 
 # ── SSH known hosts (fetched at build time) ──
 RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \

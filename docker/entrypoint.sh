@@ -33,6 +33,70 @@ if [ -d "$INIT_DIR" ]; then
     fi
 fi
 
+# ── Seed plugin JSON configs (from build-time metadata) ──
+PLUGINS_DIR="${_HOME}/.claude/plugins"
+SEED_META="${PLUGINS_DIR}/.seed-metadata.json"
+if [ -f "$SEED_META" ] && [ ! -f "$PLUGINS_DIR/installed_plugins.json" ]; then
+    CPO_SHA=$(jq -r '.cpo_sha' "$SEED_META")
+    SP_VER=$(jq -r '.sp_ver' "$SEED_META")
+    SP_SHA=$(jq -r '.sp_sha' "$SEED_META")
+    SEEDED_AT=$(jq -r '.seeded_at' "$SEED_META")
+
+    cat > "$PLUGINS_DIR/known_marketplaces.json" <<KMEOF
+{
+  "claude-plugins-official": {
+    "source": { "source": "github", "repo": "anthropics/claude-plugins-official" },
+    "installLocation": "${PLUGINS_DIR}/marketplaces/claude-plugins-official",
+    "lastUpdated": "${SEEDED_AT}"
+  },
+  "miolamio-agent-skills": {
+    "source": { "source": "github", "repo": "miolamio/agent-skills" },
+    "installLocation": "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills",
+    "lastUpdated": "${SEEDED_AT}"
+  }
+}
+KMEOF
+
+    cat > "$PLUGINS_DIR/installed_plugins.json" <<IPEOF
+{
+  "version": 2,
+  "plugins": {
+    "context7@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/context7/${CPO_SHA}",
+        "version": "${CPO_SHA}",
+        "installedAt": "${SEEDED_AT}",
+        "lastUpdated": "${SEEDED_AT}"
+      }
+    ],
+    "skill-creator@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/skill-creator/${CPO_SHA}",
+        "version": "${CPO_SHA}",
+        "installedAt": "${SEEDED_AT}",
+        "lastUpdated": "${SEEDED_AT}"
+      }
+    ],
+    "superpowers@claude-plugins-official": [
+      {
+        "scope": "user",
+        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/superpowers/${SP_VER}",
+        "version": "${SP_VER}",
+        "installedAt": "${SEEDED_AT}",
+        "lastUpdated": "${SEEDED_AT}",
+        "gitCommitSha": "${SP_SHA}"
+      }
+    ]
+  }
+}
+IPEOF
+
+    chown "${_USER}:${_USER}" "$PLUGINS_DIR/known_marketplaces.json" "$PLUGINS_DIR/installed_plugins.json"
+    echo "[airun] plugins: context7, skill-creator, superpowers seeded" >&2
+fi
+
 # ── Post-init script (for profile-specific setup) ──
 if [ -x "${_HOME}/.airun/post-init.sh" ]; then
     gosu "$_USER" "${_HOME}/.airun/post-init.sh" || true
