@@ -23,14 +23,22 @@ func List(envPath string) error {
 		defaultProvider = "zai"
 	}
 
-	fmt.Printf("\n  %-10s %-18s %-16s %s\n", "Provider", "Key", "Model", "Default")
-	fmt.Printf("  %-10s %-18s %-16s %s\n", "--------", "---", "-----", "-------")
+	// Only show providers that are configured, plus Remote if it has models
+	hasAny := false
+	for _, p := range AllProviders() {
+		if kv[p.EnvKey] != "" {
+			hasAny = true
+			break
+		}
+	}
+
+	fmt.Printf("\n  %-10s %-18s %-30s %s\n", "Provider", "Key", "Models", "Default")
+	fmt.Printf("  %-10s %-18s %-30s %s\n", "--------", "---", "------", "-------")
 
 	for _, p := range AllProviders() {
 		key := kv[p.EnvKey]
-		model := kv[p.EnvModel]
-		if model == "" {
-			model = p.Model
+		if key == "" && hasAny {
+			continue // skip unconfigured providers when at least one is configured
 		}
 		keyDisplay := "(not set)"
 		if key != "" {
@@ -40,7 +48,24 @@ func List(envPath string) error {
 		if p.ID == defaultProvider {
 			def = "  *"
 		}
-		fmt.Printf("  %-10s %-18s %-16s %s\n", p.Name, keyDisplay, model, def)
+		// Remote shows all available models from REMOTE_MODELS
+		if p.ID == "remote" && kv["REMOTE_MODELS"] != "" {
+			models := kv["REMOTE_MODELS"]
+			defaultModel := kv["REMOTE_DEFAULT_MODEL"]
+			fmt.Printf("  %-10s %-18s %-30s %s\n", p.Name, keyDisplay, defaultModel+" (default)", def)
+			for _, m := range strings.Split(models, ",") {
+				m = strings.TrimSpace(m)
+				if m != "" && m != defaultModel {
+					fmt.Printf("  %-10s %-18s %-30s\n", "", "", m)
+				}
+			}
+		} else {
+			model := kv[p.EnvModel]
+			if model == "" {
+				model = p.Model
+			}
+			fmt.Printf("  %-10s %-18s %-30s %s\n", p.Name, keyDisplay, model, def)
+		}
 	}
 	fmt.Println()
 	return nil

@@ -81,7 +81,15 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 		}
 		if len(configured) > 0 {
 			current := kv["ARUN_PROVIDER"]
-			if current == "" {
+			// If current default has no key configured, switch to first configured
+			currentHasKey := false
+			for _, id := range configured {
+				if id == current {
+					currentHasKey = true
+					break
+				}
+			}
+			if current == "" || !currentHasKey {
 				current = configured[0]
 				keys.UpdateEnvKey(envFile, "ARUN_PROVIDER", current)
 			}
