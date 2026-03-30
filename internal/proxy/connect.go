@@ -2,22 +2,24 @@ package proxy
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 // Connect configures the native Claude Code CLI to use an airun proxy.
-// It writes ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, and model settings
-// into ~/.claude/settings.json so that `claude` routes through the proxy.
+// It writes env vars into ~/.claude/settings.json and sets up ~/.claude.json
+// to bypass onboarding/authentication dialogs.
 func Connect(proxyURL, token string) error {
 	reader := bufio.NewReader(os.Stdin)
 
-	// Interactive: ask for URL and token if not provided
 	if proxyURL == "" {
 		fmt.Print("  Proxy URL (e.g. http://server:8080): ")
 		line, _ := reader.ReadString('\n')
@@ -59,48 +61,53 @@ func Connect(proxyURL, token string) error {
 		}
 	}
 
-	// Write to ~/.claude/settings.json
+	// 1. Write env vars to ~/.claude/settings.json
 	settingsPath := claudeSettingsPath()
 	if err := mergeClaudeSettings(settingsPath, proxyURL, token, defaultModel); err != nil {
 		return fmt.Errorf("write settings: %w", err)
 	}
 
+	// 2. Write ~/.claude.json to bypass onboarding/auth
+	claudeJSONPath := claudeJSONPath()
+	if err := writeClaudeJSON(claudeJSONPath, token); err != nil {
+		return fmt.Errorf("write claude.json: %w", err)
+	}
+
 	fmt.Printf("\n  Claude Code configured to use proxy:\n")
-	fmt.Printf("    URL:   %s\n", proxyURL)
-	fmt.Printf("    Model: %s\n", defaultModel)
-	fmt.Printf("    File:  %s\n\n", settingsPath)
+	fmt.Printf("    URL:      %s\n", proxyURL)
+	fmt.Printf("    Model:    %s\n", defaultModel)
+	fmt.Printf("    Settings: %s\n", settingsPath)
+	fmt.Printf("    Auth:     %s (onboarding bypassed)\n\n", claudeJSONPath)
 	fmt.Println("  Run `claude` to start using the proxy.")
 	return nil
 }
 
-// Disconnect removes proxy settings from ~/.claude/settings.json.
+// Disconnect removes proxy settings from ~/.claude/settings.json
+// and cleans up ~/.claude.json auth bypass.
 func Disconnect() error {
+	removed := 0
+
+	// 1. Clean settings.json
 	settingsPath := claudeSettingsPath()
 	settings, err := readSettings(settingsPath)
-	if err != nil {
-		return fmt.Errorf("read settings: %w", err)
-	}
-
-	env, _ := settings["env"].(map[string]any)
-	if env == nil {
-		fmt.Println("  No proxy settings found.")
-		return nil
-	}
-
-	keysToRemove := []string{
-		"ANTHROPIC_AUTH_TOKEN",
-		"ANTHROPIC_BASE_URL",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
-		"API_TIMEOUT_MS",
-	}
-	removed := 0
-	for _, k := range keysToRemove {
-		if _, ok := env[k]; ok {
-			delete(env, k)
-			removed++
+	if err == nil {
+		env, _ := settings["env"].(map[string]any)
+		if env != nil {
+			for _, k := range proxyEnvKeys {
+				if _, ok := env[k]; ok {
+					delete(env, k)
+					removed++
+				}
+			}
+			settings["env"] = env
+			writeSettings(settingsPath, settings)
 		}
+	}
+
+	// 2. Clean claude.json
+	claudeJSON := claudeJSONPath()
+	if cleanClaudeJSON(claudeJSON) {
+		removed++
 	}
 
 	if removed == 0 {
@@ -108,14 +115,142 @@ func Disconnect() error {
 		return nil
 	}
 
-	settings["env"] = env
-	if err := writeSettings(settingsPath, settings); err != nil {
-		return err
-	}
-	fmt.Printf("  Proxy settings removed from %s\n", settingsPath)
+	fmt.Println("  Proxy settings removed.")
 	fmt.Println("  Claude Code will use its default Anthropic API.")
 	return nil
 }
+
+// --- env keys managed by connect/disconnect ---
+
+var proxyEnvKeys = []string{
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"API_TIMEOUT_MS",
+}
+
+// --- ~/.claude.json management ---
+
+func claudeJSONPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude.json")
+}
+
+// writeClaudeJSON creates or merges ~/.claude.json with onboarding bypass fields.
+func writeClaudeJSON(path, apiKey string) error {
+	cj, _ := readSettings(path) // reuse generic JSON reader; empty map if missing
+
+	// Detect installed Claude Code version
+	ver := detectClaudeVersion()
+
+	// Core onboarding bypass
+	cj["hasCompletedOnboarding"] = true
+	cj["hasTrustDialogAccepted"] = true
+	cj["lastOnboardingVersion"] = ver
+	cj["autoUpdaterStatus"] = "disabled"
+
+	// Ensure numStartups is set (avoids first-run prompts)
+	if _, ok := cj["numStartups"]; !ok {
+		cj["numStartups"] = float64(184)
+	}
+
+	// Generate userID if missing
+	if _, ok := cj["userID"]; !ok {
+		b := make([]byte, 32)
+		rand.Read(b)
+		cj["userID"] = hex.EncodeToString(b)
+	}
+
+	// Ensure projects map exists
+	if _, ok := cj["projects"]; !ok {
+		cj["projects"] = map[string]any{}
+	}
+
+	// Trust the API key (last 20 chars) to avoid "trust this key?" dialog
+	keyTail := apiKey
+	if len(keyTail) > 20 {
+		keyTail = keyTail[len(keyTail)-20:]
+	}
+	car, _ := cj["customApiKeyResponses"].(map[string]any)
+	if car == nil {
+		car = map[string]any{}
+	}
+	approved, _ := car["approved"].([]any)
+	// Add if not already present
+	found := false
+	for _, a := range approved {
+		if a == keyTail {
+			found = true
+			break
+		}
+	}
+	if !found {
+		approved = append(approved, keyTail)
+	}
+	car["approved"] = approved
+	if _, ok := car["rejected"]; !ok {
+		car["rejected"] = []any{}
+	}
+	cj["customApiKeyResponses"] = car
+
+	// Mark that we wrote this (for clean disconnect)
+	cj["_airunManaged"] = true
+
+	return writeSettings(path, cj)
+}
+
+// cleanClaudeJSON removes airun-managed fields from ~/.claude.json.
+// If we created the file (_airunManaged marker), remove it entirely.
+// Returns true if changes were made.
+func cleanClaudeJSON(path string) bool {
+	cj, err := readSettings(path)
+	if err != nil || len(cj) == 0 {
+		return false
+	}
+
+	managed, _ := cj["_airunManaged"].(bool)
+	if managed {
+		// We created this file — safe to remove entirely
+		os.Remove(path)
+		return true
+	}
+
+	// File existed before us — only remove our specific fields
+	changed := false
+	for _, k := range []string{
+		"_airunManaged",
+		"customApiKeyResponses",
+	} {
+		if _, ok := cj[k]; ok {
+			delete(cj, k)
+			changed = true
+		}
+	}
+	if changed {
+		writeSettings(path, cj)
+	}
+	return changed
+}
+
+// detectClaudeVersion tries to find the installed Claude Code version.
+func detectClaudeVersion() string {
+	// Try running claude --version
+	out, err := exec.Command("claude", "--version").Output()
+	if err == nil {
+		line := strings.TrimSpace(string(out))
+		// Extract version number (e.g. "2.1.86" from "2.1.86 (Claude Code)")
+		parts := strings.Fields(line)
+		if len(parts) > 0 {
+			return parts[0]
+		}
+	}
+	// Fallback: high version to always pass the check
+	return "99.0.0"
+}
+
+// --- network ---
 
 func fetchModels(baseURL, apiKey string) ([]string, error) {
 	url := baseURL + "/v1/models"
@@ -154,6 +289,8 @@ func fetchModels(baseURL, apiKey string) ([]string, error) {
 	}
 	return models, nil
 }
+
+// --- settings.json helpers ---
 
 func claudeSettingsPath() string {
 	home, _ := os.UserHomeDir()
