@@ -28,7 +28,7 @@ var providers = []Provider{
 			"Copy the key",
 		},
 		BaseURL:    "https://api.z.ai/api/anthropic",
-		Model:      "glm-4.7",
+		Model:      "glm-5.1",
 		EnvKey:     "ZAI_API_KEY",
 		EnvBaseURL: "ZAI_BASE_URL",
 		EnvModel:   "ZAI_MODEL",
