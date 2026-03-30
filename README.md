@@ -8,6 +8,30 @@ A CLI tool for running [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 `airun` wraps Docker to give each agent run a clean, reproducible environment: a non-root user, mounted workspace, injected credentials, and a ready-to-use Claude Code CLI. You choose the model provider, attach a workload profile, and let it run — one-shot, interactive, or in a loop.
 
+## Quick Start — Connect Claude Code to Proxy
+
+If you already have Claude Code installed and received a proxy URL + token from your admin, run one command:
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.sh | bash -s -- <PROXY_URL> <API_KEY>
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:PROXY_URL='<PROXY_URL>'; $env:PROXY_KEY='<API_KEY>'
+irm https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.ps1 | iex
+```
+
+This configures `~/.claude/settings.json` and bypasses authentication dialogs. After that, just run `claude`.
+
+To disconnect and restore original settings:
+```bash
+curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.sh | bash -s -- --disconnect
+```
+
+---
+
 ## Architecture
 
 ![Agent Runtime Architecture](architecture.png)
