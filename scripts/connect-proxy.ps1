@@ -109,7 +109,9 @@ if ($models.Count -eq 0) {
 Write-Host "OK ($($models.Count) models)`n"
 foreach ($m in $models) { Write-Host "  [x] $m" }
 
+# Prefer glm-5.1 if available
 $defaultModel = $models[0]
+if ($models -contains 'glm-5.1') { $defaultModel = 'glm-5.1' }
 if ($models.Count -gt 1) {
     $chosen = Read-Host "`n  Default model [$defaultModel]"
     if ($chosen) { $defaultModel = $chosen }
