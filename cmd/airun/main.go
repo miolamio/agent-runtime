@@ -183,12 +183,33 @@ func main() {
 		return
 	case "proxy":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: airun proxy <init|serve|user> [args]")
+			fmt.Println("Usage: airun proxy <init|serve|user|connect|disconnect> [args]")
 			os.Exit(1)
 		}
 		configPath, studentsPath := proxy.DefaultPaths()
 		subcmd := os.Args[2]
 		switch subcmd {
+		case "connect":
+			// airun proxy connect [url] [token]
+			var url, token string
+			if len(os.Args) > 3 {
+				url = os.Args[3]
+			}
+			if len(os.Args) > 4 {
+				token = os.Args[4]
+			}
+			fmt.Println("\n  --- Connect Claude Code to Proxy ---")
+			if err := proxy.Connect(url, token); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "disconnect":
+			if err := proxy.Disconnect(); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "init":
 			if err := proxy.Init(configPath, studentsPath); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -402,6 +423,8 @@ Usage:
   airun keys test [provider]                   Validate keys via API call
   airun keys default <provider>                Change default provider
   airun keys model <model>                    Change default model
+  airun proxy connect [url] [token]             Configure Claude Code to use proxy
+  airun proxy disconnect                        Remove proxy settings from Claude Code
   airun proxy init                             Create proxy config
   airun proxy serve                            Start proxy server
   airun proxy serve --port 9090                Start on custom port
