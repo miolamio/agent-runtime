@@ -8,6 +8,10 @@ A CLI tool for running [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 
 `airun` wraps Docker to give each agent run a clean, reproducible environment: a non-root user, mounted workspace, injected credentials, and a ready-to-use Claude Code CLI. You choose the model provider, attach a workload profile, and let it run — one-shot, interactive, or in a loop.
 
+## Architecture
+
+![Agent Runtime Architecture](architecture.png)
+
 ## Why
 
 Running Claude Code directly on your host works fine for interactive use, but autonomous agents need guardrails: filesystem isolation, credential scoping, reproducible toolchains, and a clean exit every time. `airun` provides all of this with a single command.
