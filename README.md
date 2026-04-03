@@ -289,50 +289,12 @@ All providers expose the Anthropic Messages API natively — no translation laye
 
 ## Proxy
 
-`airun proxy` runs an authenticated API proxy that lets you share model access without sharing API keys. Deploy it on a server, generate per-user tokens, and users connect via `airun keys add remote`.
-
-### Admin workflow
-
-```bash
-# 1. Build and upload to your server
-GOOS=linux GOARCH=amd64 go build -o bin/airun-linux ./cmd/airun/
-scp bin/airun-linux root@your-server:/usr/local/bin/airun
-
-# 2. Initialize proxy config
-ssh root@your-server "airun proxy init"
-# Edit ~/proxy.yaml to add provider API keys
-
-# 3. Add users
-ssh root@your-server "airun proxy user add 'Ivanov'"
-#   Ivanov: sk-ai-a1b2c3d4...
-
-# 4. Bulk import from a file (one name per line)
-ssh root@your-server "airun proxy user import users.txt"
-
-# 5. Start the proxy
-ssh root@your-server "airun proxy serve"
-# [proxy] Listening on :8080
-# [proxy] Providers: 3 (5 models: glm-5.1, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
-# [proxy] Users: 15 active
-```
-
-### User workflow
-
-```bash
-airun keys add remote
-#   Proxy URL: https://proxy.example.com
-#   API key: sk-ai-a1b2c3d4...
-#   Fetching models... OK (5 models)
-#   Default model: glm-5.1
-
-airun keys default remote
-airun shell    # all requests go through the proxy
-```
+`airun proxy` runs an authenticated API proxy that lets you share model access without sharing API keys. Deploy it on a Linux server, generate per-user tokens, and users connect with a single command.
 
 ### How it works
 
 ```
-User (airun)                   Proxy server               Provider (Z.AI, MiniMax, Kimi)
+User (Claude Code)             Proxy server               Provider (Z.AI, MiniMax, Kimi)
      |                              |                              |
      |-- POST /v1/messages -------->|                              |
      |   x-api-key: sk-ai-...       |                              |
@@ -350,7 +312,30 @@ User (airun)                   Proxy server               Provider (Z.AI, MiniMa
 
 The proxy only replaces `x-api-key` and `User-Agent` headers. Everything else — request body, streaming, response — passes through unchanged.
 
-### Proxy configuration
+### Deploying the proxy server
+
+**Prerequisites:** a Linux VPS (Ubuntu/Debian), root SSH access, a domain name pointed at the server's IP.
+
+#### Step 1: Build and upload the binary
+
+```bash
+# On your development machine
+GOOS=linux GOARCH=amd64 go build -o bin/airun-linux ./cmd/airun/
+scp bin/airun-linux root@your-server:/usr/local/bin/airun
+ssh root@your-server "chmod +x /usr/local/bin/airun"
+```
+
+#### Step 2: Initialize proxy config
+
+```bash
+ssh root@your-server "airun proxy init"
+```
+
+This creates two files:
+- `~/proxy.yaml` — provider configuration (API keys, models, rate limits)
+- `~/students.json` — user database (empty)
+
+Edit `~/proxy.yaml` to add your provider API keys:
 
 ```yaml
 # ~/proxy.yaml
@@ -361,18 +346,209 @@ user_agent: "claude-cli/2.1.80 (external, cli)"
 providers:
   zai:
     base_url: "https://api.z.ai/api/anthropic"
-    api_key: "your-key"
+    api_key: "your-zai-key"
     models:
       - glm-5.1
       - glm-4.7
+      - GLM-4.5-Air
   minimax:
     base_url: "https://api.minimax.io/anthropic"
-    api_key: "your-key"
+    api_key: "your-minimax-key"
     models:
       - MiniMax-M2.7
+  kimi:
+    base_url: "https://api.kimi.com/coding/"
+    api_key: "your-kimi-key"
+    models:
+      - kimi-k2.5
 ```
 
-Users are stored in `~/students.json`, managed via `airun proxy user` commands.
+#### Step 3: Set up nginx reverse proxy with SSL
+
+The proxy listens on `localhost:8080` (HTTP). Put nginx in front for HTTPS:
+
+```bash
+ssh root@your-server "apt-get update -qq && apt-get install -y -qq nginx certbot python3-certbot-nginx"
+```
+
+Create the nginx config:
+
+```bash
+ssh root@your-server 'cat > /etc/nginx/sites-available/proxy.conf << "EOF"
+server {
+    listen 80;
+    server_name proxy.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE streaming support
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+
+        # Large body support (for long prompts)
+        client_max_body_size 10m;
+    }
+}
+EOF
+ln -sf /etc/nginx/sites-available/proxy.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl restart nginx'
+```
+
+Obtain a Let's Encrypt certificate (auto-configures nginx for HTTPS and sets up renewal):
+
+```bash
+ssh root@your-server "certbot --nginx -d proxy.example.com --non-interactive --agree-tos --email you@example.com --redirect"
+```
+
+#### Step 4: Configure firewall
+
+```bash
+ssh root@your-server "ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable"
+```
+
+This opens only SSH, HTTP (for ACME challenges), and HTTPS. Port 8080 stays closed externally — nginx proxies to it locally.
+
+#### Step 5: Create a systemd service
+
+```bash
+ssh root@your-server 'cat > /etc/systemd/system/airun-proxy.service << "EOF"
+[Unit]
+Description=airun API proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/airun proxy serve
+Restart=always
+RestartSec=5
+WorkingDirectory=/root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable airun-proxy && systemctl start airun-proxy'
+```
+
+#### Step 6: Verify
+
+```bash
+# Check service status
+ssh root@your-server "systemctl status airun-proxy --no-pager"
+
+# Test the API endpoint
+curl -s https://proxy.example.com/v1/models -H "x-api-key: <any-valid-token>"
+```
+
+Expected output from systemd:
+
+```
+[proxy] Providers: 3 (5 models: glm-5.1, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
+[proxy] Users: 15 active
+[proxy] Rate limit: unlimited
+```
+
+### Managing users
+
+```bash
+# Add a single user (prints the token)
+ssh root@your-server "airun proxy user add 'Ivanov'"
+#   Ivanov: sk-ai-a1b2c3d4...
+
+# Bulk import from a file (one name per line)
+ssh root@your-server "airun proxy user import users.txt"
+
+# List all users (tokens masked)
+ssh root@your-server "airun proxy user list"
+
+# Export active users with full tokens (for distribution)
+ssh root@your-server "airun proxy user export"
+
+# Revoke / restore access
+ssh root@your-server "airun proxy user revoke 'Ivanov'"
+ssh root@your-server "airun proxy user restore 'Ivanov'"
+```
+
+The proxy picks up user changes on the next request. To reload `students.json` without restarting:
+
+```bash
+ssh root@your-server "kill -HUP \$(pgrep -f 'airun proxy serve')"
+```
+
+### Connecting users to the proxy
+
+**With `airun` CLI:**
+
+```bash
+airun keys add remote
+#   Proxy URL: https://proxy.example.com
+#   API key: sk-ai-a1b2c3d4...
+#   Fetching models... OK (5 models)
+#   Default model: glm-5.1
+
+airun keys default remote
+airun shell    # all requests go through the proxy
+```
+
+**Without `airun` — direct Claude Code setup (one-liner):**
+
+macOS / Linux:
+```bash
+curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.sh | bash -s -- <PROXY_URL> <API_KEY>
+```
+
+Windows (PowerShell):
+```powershell
+$env:PROXY_URL='<PROXY_URL>'; $env:PROXY_KEY='<API_KEY>'
+irm https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.ps1 | iex
+```
+
+To disconnect:
+```bash
+curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.sh | bash -s -- --disconnect
+```
+
+### Maintenance
+
+```bash
+# View proxy logs
+ssh root@your-server "journalctl -u airun-proxy -f"
+
+# Restart after config change
+ssh root@your-server "systemctl restart airun-proxy"
+
+# Update the binary
+GOOS=linux GOARCH=amd64 go build -o bin/airun-linux ./cmd/airun/
+scp bin/airun-linux root@your-server:/usr/local/bin/airun
+ssh root@your-server "systemctl restart airun-proxy"
+
+# Renew SSL certificate (usually automatic, but can be forced)
+ssh root@your-server "certbot renew"
+```
+
+### Deploying additional proxy servers
+
+To add a second (or third) proxy with the same config — copy the binary, config files, and repeat the nginx/SSL/systemd setup:
+
+```bash
+# Copy binary
+scp bin/airun-linux root@new-server:/usr/local/bin/airun
+
+# Copy config from existing server
+ssh root@existing-server "cat ~/proxy.yaml" | ssh root@new-server "cat > ~/proxy.yaml && chmod 600 ~/proxy.yaml"
+ssh root@existing-server "cat ~/students.json" | ssh root@new-server "cat > ~/students.json && chmod 600 ~/students.json"
+
+# Then repeat Steps 3–6 above with the new server's domain name
+```
+
+Users can connect to any proxy instance with the same token — the user database is shared via the copied `students.json`.
 
 ## Profiles
 

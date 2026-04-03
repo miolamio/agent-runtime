@@ -423,8 +423,6 @@ Usage:
   airun keys test [provider]                   Validate keys via API call
   airun keys default <provider>                Change default provider
   airun keys model <model>                    Change default model
-  airun proxy connect [url] [token]             Configure Claude Code to use proxy
-  airun proxy disconnect                        Remove proxy settings from Claude Code
   airun proxy init                             Create proxy config
   airun proxy serve                            Start proxy server
   airun proxy serve --port 9090                Start on custom port

@@ -6,125 +6,115 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two things in one repo:
 
-1. **Skills Library** — 20 self-contained skills in `.claude/skills/` for artifact generation, Office formats, design, translation, and browser automation.
+1. **Skills Library** — Self-contained skills in `.claude/skills/` for artifact generation, Office formats, design, translation, and browser automation.
 2. **Agent Runtime** — Docker-based infrastructure for running Claude Code agents in isolated containers with multi-provider model routing. CLI: `airun`. Spec: `.development/specification.md`
+
+## Build, Test, Run
+
+```bash
+# Build (requires Go 1.25+)
+go build -o bin/airun ./cmd/airun/
+
+# Run all tests
+go test ./...
+
+# Run tests for a specific package
+go test ./internal/proxy/...
+go test ./internal/keys/...
+
+# Run a single test
+go test ./internal/proxy/ -run TestForwardRequest
+
+# Verbose test output
+go test -v ./internal/proxy/...
+
+# Build Docker image
+docker build -t agent-runtime:latest docker/
+
+# Force Claude Code reinstall in image
+docker build --build-arg CLAUDE_BUST_CACHE=$(date +%s) -t agent-runtime:latest docker/
+
+# Cross-compile for Linux (proxy server deployment)
+GOOS=linux GOARCH=amd64 go build -o bin/airun-linux ./cmd/airun/
+```
+
+No Makefile, CI pipeline, or linter config exists. Tests use standard `go test`. Only `internal/proxy/` and `internal/keys/` have test files — core packages (`runner`, `config`, `profile`, `history`) are untested.
+
+## Architecture
+
+The CLI (`cmd/airun/main.go`) uses `flag` (no third-party CLI framework) and dispatches to internal packages. Single external dependency: `gopkg.in/yaml.v3`.
+
+### Package Dependency Flow
+
+```
+cmd/airun/main.go
+  ├── config     ← loads ~/.airun.env, resolves provider/model
+  ├── runner     ← docker run/create, volume mounts, parallel execution
+  │     └── config, envfile, history, profile
+  ├── keys       ← API key add/remove/test/list/default
+  │     └── config
+  ├── proxy      ← HTTP proxy server with per-user auth
+  │     └── proxy/students (token generation, user CRUD)
+  ├── setup      ← interactive init wizard
+  │     └── config, keys
+  ├── history    ← run history to ~/.airun/runs/
+  ├── monitor    ← docker ps wrapper
+  └── prereq     ← checks Docker availability
+```
+
+### Provider Routing
+
+All providers expose the Anthropic Messages API natively. The config package normalizes provider names and generates container env vars:
+
+- **Aliases**: `z`/`zai`, `m`/`mm`/`minimax`, `k`/`kimi`, `r`/`remote`
+- **Resolution order**: CLI flag `--provider` → profile YAML → `~/.airun.env` → default (`zai`)
+- **Container env**: Provider-specific keys become `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_SONNET_MODEL`
+
+### Docker Container Lifecycle
+
+Each `airun` run creates an ephemeral container. Key behaviors:
+
+- **Mount modes**: `snapshot` (copies workspace into container) vs `bind` (live mount of host directory)
+- **State volume**: Optional `airun-claude-state` Docker volume persists Claude Code state across runs. Disabled with `--no-state`.
+- **Build ID tracking**: Entrypoint warns if image was rebuilt since state volume was created (catches stale caches)
+- **Parallel agents force `NoState: true`** to avoid Docker volume corruption from concurrent writes
+- **Entrypoint** (`docker/entrypoint.sh`): Seeds Claude Code settings, bypasses onboarding, filters `[credential]` sections from host git config, seeds plugin metadata from build-time JSON
+
+### Proxy System
+
+The most complex subsystem (`internal/proxy/`). An HTTP proxy that lets admins share model access without sharing API keys.
+
+- Config: `~/proxy.yaml` (providers, rate limits) + `~/students.json` (user tokens)
+- Token auth: SHA256-hashed tokens in students.json
+- Per-user rate limiting (configurable RPM)
+- SIGHUP reload (update users without restart)
+- Only replaces `x-api-key` and `User-Agent` headers; everything else passes through unchanged
 
 ## Skill Structure
 
 Each skill lives in `.claude/skills/<name>/` and follows this pattern:
 
 - `SKILL.md` — Required. YAML frontmatter (`name`, `description`) + procedural instructions. The `description` field determines when the skill triggers.
-- `scripts/` — Python/JS/Bash utilities for deterministic operations (PDF analysis, Office validation, etc.)
+- `scripts/` — Python/JS/Bash utilities for deterministic operations
 - `references/` — On-demand documentation, schemas, API guides
-- `assets/` or `templates/` — Media, templates, boilerplate used in outputs
+- `assets/` or `templates/` — Media, templates, boilerplate
 
-Skills are independent and self-contained. Claude reads SKILL.md and executes its instructions; scripts run via Bash/Node when needed.
-
-## Creating / Modifying Skills
-
-Use the `skill-creator` skill, which provides the canonical framework:
-
+Use the `skill-creator` skill to scaffold new skills:
 ```bash
-# Scaffold a new skill
 python .claude/skills/skill-creator/scripts/init_skill.py <skill-name> --path <output-dir>
-
-# Validate and package
-python .claude/skills/skill-creator/scripts/package_skill.py <path/to/skill-folder> ./dist
 ```
 
-Detailed workflow patterns: `.claude/skills/skill-creator/references/workflows.md`
-Output formatting patterns: `.claude/skills/skill-creator/references/output-patterns.md`
+### Key Design Principles
 
-## Key Design Principles
-
-- **Concise**: Context window is shared — only include essential information in SKILL.md
-- **Progressive disclosure**: Metadata loads first, then SKILL.md body, then references/scripts on demand
 - **SKILL.md body < 500 lines**; reference files > 100 lines should include a table of contents
 - **Scripts** solve operations that are fragile, repeated, or require deterministic behavior
 - **Description field** must clearly state trigger conditions (keywords, file types, user phrases)
 
-## Skills by Category
+## Configuration
 
-**Document processing**: docx, pptx, pdf, xlsx — Office format creation/editing via Python/JS libraries
-**Design**: canvas-design, frontend-design, algorithmic-art, theme-factory, brand-guidelines
-**Development**: mcp-builder, web-artifacts-builder, webapp-testing
-**Language**: en-ru-translator-adv, ru-editor, krrkt
-**Content**: doc-coauthoring, internal-comms, skill-creator
-**Automation**: playwright-cli, slack-gif-creator
-
-## Agent Runtime — Build and Run
-
-```bash
-# Build airun CLI
-go build -o bin/airun ./cmd/airun/
-
-# First-time setup (creates ~/.airun.env, dirs, profiles, installs binary)
-./bin/airun init
-
-# Check prerequisites
-./bin/airun --check
-
-# Run agent task (from any directory)
-airun "prompt"
-airun -p dev "prompt"             # with profile
-airun --provider mm "prompt"      # with specific provider
-
-# Interactive Claude Code session (mounts current dir)
-airun shell
-airun shell -p dev
-airun shell --provider mm
-
-# Parallel agents
-airun --parallel --agent "a1:task1" --agent "a2:task2"
-
-# Autonomous loop
-airun --loop --max-loops 5 "prompt"
-
-# Export artifacts from container
-airun --output ./results "generate report"
-
-# Status, history, rebuild
-airun --status
-airun history
-airun rebuild
-
-# Key management
-airun keys list                   # show configured keys
-airun keys add kimi               # add key with guide + validation
-airun keys remove minimax         # remove provider key
-airun keys test                   # validate all keys
-airun keys test kimi              # validate specific key
-airun keys default kimi           # change default provider
-
-# Proxy server (admin-side)
-airun proxy init                         # create proxy.yaml + students.json
-airun proxy serve                        # start proxy server
-airun proxy serve --port 9090            # custom port
-airun proxy user add "Ivanov"            # create user → token
-airun proxy user list                    # show all users
-airun proxy user revoke "Ivanov"         # deactivate user
-airun proxy user restore "Ivanov"        # reactivate user
-airun proxy user import list.txt         # bulk import
-airun proxy user export                  # export name + token pairs
-
-# Remote proxy (user-side)
-airun keys add remote                    # connect to proxy with URL + token
-```
-
-## Agent Runtime — Configuration
-
-- `~/.airun.env` — Central config: API keys, default provider, workspace
-- `~/airun-profiles/*.yaml` — Workload profiles (dev, text, etc.)
+- `~/.airun.env` — Central config: API keys, default provider, workspace (chmod 600)
+- `~/airun-profiles/*.yaml` — Workload profiles (provider, skills, plugins, settings)
 - `~/airun-skills/` — Skills mounted into containers (RO)
 - `~/.airun/runs/` — Run history with logs and metadata
-
-## Agent Runtime — Project Structure
-
-- `cmd/airun/` — Go CLI entry point
-- `internal/` — config, envfile, history, monitor, prereq, profile, runner, setup
-- `docker/` — Dockerfile, entrypoint.sh, default settings
-- `configs/profiles/` — YAML profile templates (dev, text, default)
-- `configs/router/` — Claude Code Router config (optional)
-- `scripts/` — setup.sh, init-container.sh
-- `examples/` — Sample skills, agents, commands
-- `.development/` — Specification and development logs
+- `configs/airun.env.example` — Template for the config file
+- `configs/profiles/` — Shipped profile templates: default, dev, text
