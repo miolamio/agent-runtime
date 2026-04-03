@@ -49,7 +49,7 @@ fi
 echo "  File exists: yes ($(wc -c < "$SETTINGS" | tr -d ' ') bytes)"
 
 # Extract env block values (portable grep, no bash-4 features)
-extract() { grep -o "\"$1\":\"[^\"]*\"" "$SETTINGS" 2>/dev/null | head -1 | cut -d'"' -f4; }
+extract() { grep -o "\"$1\" *: *\"[^\"]*\"" "$SETTINGS" 2>/dev/null | head -1 | sed 's/.*: *"//;s/"$//'; }
 
 TOKEN=$(extract ANTHROPIC_AUTH_TOKEN)
 URL=$(extract ANTHROPIC_BASE_URL)
