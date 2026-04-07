@@ -40,6 +40,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
 	var settingsTmp string
+	var pluginScriptTmp string
 	if opts.Profile != "" {
 		prof, err := profile.Load(opts.Profile)
 		if err != nil {
@@ -47,12 +48,15 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		}
 		fmt.Fprintf(os.Stderr, "[airun] profile=%s (%s)\n", prof.Name, prof.Description)
 
-		extraVolumes, settingsTmp, err = profileMounts(prof)
+		extraVolumes, settingsTmp, pluginScriptTmp, err = profileMounts(prof)
 		if err != nil {
 			return fmt.Errorf("profile mounts: %w", err)
 		}
 		if settingsTmp != "" {
 			defer os.Remove(settingsTmp)
+		}
+		if pluginScriptTmp != "" {
+			defer os.Remove(pluginScriptTmp)
 		}
 
 		if opts.Provider == "" && prof.Provider != "" {
@@ -128,6 +132,15 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 		return err
 	}
 	defer envfile.Cleanup(envPath)
+
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "bind"
+	}
+
+	if mode == "snapshot" && !opts.Interactive {
+		return runDockerSnapshot(cfg, opts, provider, model, envPath, extraVolumes, imageName)
+	}
 
 	var args []string
 	if opts.Interactive {
@@ -207,6 +220,80 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	return err
 }
 
+func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPath string, extraVolumes []string, imageName string) error {
+	containerName := fmt.Sprintf("airun-snap-%d", time.Now().Unix())
+
+	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
+
+	// No -v for workspace — we'll docker cp instead
+	if !opts.NoState {
+		createArgs = append(createArgs, "-v", stateVolumeName+":"+stateMountPath)
+	}
+	for _, v := range extraVolumes {
+		createArgs = append(createArgs, "-v", v)
+	}
+
+	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
+		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+	}
+
+	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+	if opts.Loop && opts.MaxLoops > 0 {
+		createArgs = append(createArgs, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
+	}
+
+	fmt.Fprintf(os.Stderr, "[airun] snapshot mode: creating container %s\n", containerName)
+	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
+		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
+	}
+
+	// Copy workspace into container
+	if opts.Mount != "" {
+		fmt.Fprintf(os.Stderr, "[airun] copying %s → container:/workspace\n", opts.Mount)
+		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
+		if out, err := cpCmd.CombinedOutput(); err != nil {
+			exec.Command("docker", "rm", containerName).Run()
+			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
+		}
+	}
+
+	// Start and capture output
+	var outputBuf bytes.Buffer
+	start := time.Now()
+
+	startCmd := exec.Command("docker", "start", "-a", containerName)
+	startCmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
+	startCmd.Stderr = os.Stderr
+	runErr := startCmd.Run()
+
+	exitCode := 0
+	if runErr != nil {
+		exitCode = 1
+	}
+
+	// Cleanup container
+	exec.Command("docker", "rm", containerName).Run()
+
+	// Save history
+	rec := history.RunRecord{
+		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
+		Profile:    opts.Profile,
+		Provider:   provider,
+		Model:      model,
+		Prompt:     opts.Prompt,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCode,
+		RunDir:     history.NewRunDir(opts.Profile, provider),
+	}
+	history.Save(rec, outputBuf.String())
+
+	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
+	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
+
+	return runErr
+}
+
 func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
 	imageName := "agent-runtime:latest"
 	containerName := fmt.Sprintf("airun-export-%d", time.Now().Unix())
@@ -217,8 +304,13 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	}
 	defer envfile.Cleanup(envPath)
 
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "bind"
+	}
+
 	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
-	if opts.Mount != "" {
+	if opts.Mount != "" && mode != "snapshot" {
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
 	if !opts.NoState {
@@ -238,6 +330,16 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
+	}
+
+	// Snapshot mode: copy workspace into container instead of bind mount
+	if opts.Mount != "" && mode == "snapshot" {
+		fmt.Fprintf(os.Stderr, "[airun] snapshot mode: copying %s → container:/workspace\n", opts.Mount)
+		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
+		if out, err := cpCmd.CombinedOutput(); err != nil {
+			exec.Command("docker", "rm", containerName).Run()
+			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
+		}
 	}
 
 	var outputBuf bytes.Buffer
@@ -282,12 +384,20 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	return runErr
 }
 
-// profileMounts generates Docker volume mount args from a profile's skills and settings.
-func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, err error) {
+// profileMounts generates Docker volume mount args from a profile's skills, plugins, and settings.
+func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, pluginScriptPath string, err error) {
 	if len(p.Plugins) > 0 {
-		fmt.Fprintf(os.Stderr, "[airun] warning: profile plugins are not yet supported (ignored: %s)\n",
-			strings.Join(p.Plugins, ", "))
+		scriptPath, scriptErr := generatePluginScript(p.Plugins)
+		if scriptErr != nil {
+			return nil, "", "", fmt.Errorf("generate plugin script: %w", scriptErr)
+		}
+		if scriptPath != "" {
+			pluginScriptPath = scriptPath
+			volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.airun/post-init.sh:ro", scriptPath))
+			fmt.Fprintf(os.Stderr, "[airun] plugins: %s (via post-init)\n", strings.Join(p.Plugins, ", "))
+		}
 	}
+
 	for _, skillPath := range p.SkillPaths() {
 		skillName := filepath.Base(skillPath)
 		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/skills/%s:ro", skillPath, skillName))
@@ -296,21 +406,55 @@ func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, e
 	if len(p.Settings) > 0 {
 		settingsJSON, err := json.Marshal(p.Settings)
 		if err != nil {
-			return nil, "", fmt.Errorf("marshal settings: %w", err)
+			return nil, "", pluginScriptPath, fmt.Errorf("marshal settings: %w", err)
 		}
 		f, err := os.CreateTemp(os.TempDir(), ".airun-settings-*.json")
 		if err != nil {
-			return nil, "", fmt.Errorf("create settings temp file: %w", err)
+			return nil, "", pluginScriptPath, fmt.Errorf("create settings temp file: %w", err)
 		}
 		if _, err := f.Write(settingsJSON); err != nil {
 			f.Close()
 			os.Remove(f.Name())
-			return nil, "", fmt.Errorf("write settings: %w", err)
+			return nil, "", pluginScriptPath, fmt.Errorf("write settings: %w", err)
 		}
 		f.Close()
 		settingsPath = f.Name()
 		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json:ro", settingsPath))
 	}
 
-	return volumes, settingsPath, nil
+	return volumes, settingsPath, pluginScriptPath, nil
+}
+
+// generatePluginScript creates a temporary shell script that installs Claude Code
+// plugins listed in a profile. The script is mounted as post-init.sh and executed
+// by the container entrypoint.
+func generatePluginScript(plugins []string) (string, error) {
+	var lines []string
+	lines = append(lines, "#!/bin/bash")
+	lines = append(lines, "# Auto-generated by airun profile — installs plugins via claude CLI")
+	for _, plugin := range plugins {
+		// Plugin format: "name@marketplace" or just "name"
+		parts := strings.SplitN(plugin, "@", 2)
+		name := parts[0]
+		if len(parts) == 2 {
+			marketplace := parts[1]
+			lines = append(lines, fmt.Sprintf("claude plugin install %s --marketplace %s 2>/dev/null || true", name, marketplace))
+		} else {
+			lines = append(lines, fmt.Sprintf("claude plugin install %s 2>/dev/null || true", name))
+		}
+	}
+
+	f, err := os.CreateTemp(os.TempDir(), ".airun-plugins-*.sh")
+	if err != nil {
+		return "", err
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if _, err := f.WriteString(content); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", err
+	}
+	f.Close()
+	os.Chmod(f.Name(), 0755)
+	return f.Name(), nil
 }
