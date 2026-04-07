@@ -62,6 +62,28 @@ func TestForwardRequestStreaming(t *testing.T) {
 	}
 }
 
+func TestForwardRequest_AuthorizationStripped(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Errorf("Authorization header leaked to upstream: %s", auth)
+		}
+		w.WriteHeader(200)
+		w.Write([]byte(`{"ok": true}`))
+	}))
+	defer upstream.Close()
+
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer sk-ai-student-token-should-not-leak")
+	req.Header.Set("x-api-key", "original-key")
+	rec := httptest.NewRecorder()
+
+	ForwardRequest(rec, req, upstream.URL, "real-provider-key", "test-agent")
+
+	if rec.Code != 200 {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
 func TestForwardRequestUpstreamError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)

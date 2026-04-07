@@ -111,3 +111,71 @@ func TestMessagesBodyTooLarge(t *testing.T) {
 		t.Errorf("status = %d, want 413", rec.Code)
 	}
 }
+
+func TestRateLimitedUser(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"msg_1","type":"message","model":"m1","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer upstream.Close()
+
+	cfg := &ProxyConfig{
+		RPM:       1,
+		UserAgent: "test",
+		Providers: map[string]ProviderEntry{
+			"test": {BaseURL: upstream.URL, APIKey: "key", Models: []string{"m1"}},
+		},
+	}
+	dir := t.TempDir()
+	sp := filepath.Join(dir, "students.json")
+	os.WriteFile(sp, []byte("[]"), 0600)
+	mgr := students.New(sp)
+	tok, _ := mgr.Add("RateLimited")
+
+	h := NewHandler(cfg, mgr)
+
+	body := `{"model":"m1","messages":[{"role":"user","content":"hi"}]}`
+
+	// First request — should succeed
+	req1 := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
+	req1.Header.Set("x-api-key", tok)
+	rec1 := httptest.NewRecorder()
+	h.ServeHTTP(rec1, req1)
+	if rec1.Code != 200 {
+		t.Fatalf("first request: status = %d, want 200", rec1.Code)
+	}
+
+	// Second request — should be rate limited
+	req2 := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
+	req2.Header.Set("x-api-key", tok)
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req2)
+	if rec2.Code != 429 {
+		t.Errorf("second request: status = %d, want 429", rec2.Code)
+	}
+}
+
+func TestRevokedUserRejected(t *testing.T) {
+	cfg := &ProxyConfig{
+		UserAgent: "test",
+		Providers: map[string]ProviderEntry{
+			"test": {BaseURL: "http://localhost", APIKey: "key", Models: []string{"m1"}},
+		},
+	}
+	dir := t.TempDir()
+	sp := filepath.Join(dir, "students.json")
+	os.WriteFile(sp, []byte("[]"), 0600)
+	mgr := students.New(sp)
+	tok, _ := mgr.Add("Revoked")
+	mgr.Revoke("Revoked")
+
+	h := NewHandler(cfg, mgr)
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	req.Header.Set("x-api-key", tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != 401 {
+		t.Errorf("revoked user: status = %d, want 401", rec.Code)
+	}
+}
