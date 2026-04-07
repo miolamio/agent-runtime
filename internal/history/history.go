@@ -29,11 +29,23 @@ func runsDir() string {
 
 func Save(rec RunRecord, output string) error {
 	dir := rec.RunDir
-	os.MkdirAll(dir, 0755)
-	data, _ := json.MarshalIndent(rec, "", "  ")
-	os.WriteFile(filepath.Join(dir, "meta.json"), data, 0644)
-	os.WriteFile(filepath.Join(dir, "prompt.txt"), []byte(rec.Prompt), 0644)
-	os.WriteFile(filepath.Join(dir, "output.txt"), []byte(output), 0644)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "[airun] warning: cannot create history dir: %v\n", err)
+		return err
+	}
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return err
+	}
+	for name, content := range map[string][]byte{
+		"meta.json":  data,
+		"prompt.txt": []byte(rec.Prompt),
+		"output.txt": []byte(output),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "[airun] warning: cannot write %s: %v\n", name, err)
+		}
+	}
 	return nil
 }
 

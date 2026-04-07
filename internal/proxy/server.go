@@ -87,10 +87,14 @@ providers:
   #     - kimi-k2.5
 `
 
-	os.WriteFile(configPath, []byte(template), 0600)
+	if err := os.WriteFile(configPath, []byte(template), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", configPath, err)
+	}
 	fmt.Printf("  Created: %s\n", configPath)
 
-	os.WriteFile(studentsPath, []byte("[]\n"), 0600)
+	if err := os.WriteFile(studentsPath, []byte("[]\n"), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", studentsPath, err)
+	}
 	fmt.Printf("  Created: %s\n", studentsPath)
 
 	fmt.Println()

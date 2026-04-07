@@ -3,12 +3,23 @@ package envfile
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
 
+func privateTmpDir() string {
+	usr, err := user.Current()
+	if err != nil {
+		return os.TempDir() // fallback
+	}
+	dir := filepath.Join(usr.HomeDir, ".airun", "tmp")
+	os.MkdirAll(dir, 0700)
+	return dir
+}
+
 func Write(envVars []string) (string, error) {
-	f, err := os.CreateTemp(os.TempDir(), ".airun-*.env")
+	f, err := os.CreateTemp(privateTmpDir(), ".airun-*.env")
 	if err != nil {
 		return "", fmt.Errorf("cannot create temp env file: %w", err)
 	}

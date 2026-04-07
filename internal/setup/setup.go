@@ -20,21 +20,22 @@ func Run() error {
 	fmt.Println()
 
 	envFile := filepath.Join(home, ".airun.env")
-	isNew := true
+	configureKeys := true
 	if _, err := os.Stat(envFile); err == nil {
-		isNew = false
+		configureKeys = false
 		fmt.Printf("  Config exists: %s\n", envFile)
 		fmt.Print("  Reconfigure keys? [y/N] ")
 		answer, _ := reader.ReadString('\n')
-		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
+		if strings.TrimSpace(strings.ToLower(answer)) == "y" {
+			configureKeys = true
+		} else {
 			fmt.Println("  Keeping existing config.")
-			goto dirs
 		}
 	}
 
-	{
-		// Write base config if new
-		if isNew {
+	if configureKeys {
+		// Write base config if file doesn't exist
+		if _, err := os.Stat(envFile); os.IsNotExist(err) {
 			content := fmt.Sprintf(`# Agent Runtime — Central Configuration
 ARUN_WORKSPACE=%s
 ARUN_MODE=snapshot
@@ -112,7 +113,6 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 		fmt.Printf("\n  Config written: %s\n", envFile)
 	}
 
-dirs:
 	// 2. Directories
 	fmt.Println()
 	fmt.Println("  Creating directories...")

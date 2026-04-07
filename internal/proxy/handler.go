@@ -52,7 +52,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusUnauthorized, "invalid or revoked token")
 		return
 	}
-	if !h.limiter.Allow(token) {
+	if !h.limiter.Allow(student.Name) {
 		jsonError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}

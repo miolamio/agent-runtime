@@ -275,6 +275,10 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 
 // profileMounts generates Docker volume mount args from a profile's skills and settings.
 func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, err error) {
+	if len(p.Plugins) > 0 {
+		fmt.Fprintf(os.Stderr, "[airun] warning: profile plugins are not yet supported (ignored: %s)\n",
+			strings.Join(p.Plugins, ", "))
+	}
 	for _, skillPath := range p.SkillPaths() {
 		skillName := filepath.Base(skillPath)
 		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/skills/%s:ro", skillPath, skillName))

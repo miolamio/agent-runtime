@@ -164,10 +164,6 @@ func NormalizeProvider(p string) string {
 	}
 }
 
-func (c *Config) isMinimax() bool {
-	return NormalizeProvider(c.Provider) == "minimax"
-}
-
 // ContainerEnvWithModel returns env vars with optional model override.
 func (c *Config) ContainerEnvWithModel(provider, modelOverride string) []string {
 	if provider == "" {

@@ -19,7 +19,10 @@ type Profile struct {
 }
 
 func Load(name string) (*Profile, error) {
-	usr, _ := user.Current()
+	usr, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine home directory: %w", err)
+	}
 	path := filepath.Join(usr.HomeDir, "airun-profiles", name+".yaml")
 
 	data, err := os.ReadFile(path)
@@ -40,7 +43,10 @@ func Load(name string) (*Profile, error) {
 }
 
 func List() ([]string, error) {
-	usr, _ := user.Current()
+	usr, err := user.Current()
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine home directory: %w", err)
+	}
 	dir := filepath.Join(usr.HomeDir, "airun-profiles")
 
 	entries, err := os.ReadDir(dir)
@@ -59,7 +65,10 @@ func List() ([]string, error) {
 
 // SkillPaths returns host paths for listed skills.
 func (p *Profile) SkillPaths() []string {
-	usr, _ := user.Current()
+	usr, err := user.Current()
+	if err != nil {
+		return nil
+	}
 	base := filepath.Join(usr.HomeDir, "airun-skills")
 	var paths []string
 	for _, s := range p.Skills {

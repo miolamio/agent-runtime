@@ -5,10 +5,14 @@ import (
 	"time"
 )
 
-const rateLimitWindow = time.Minute
+const (
+	rateLimitWindow = time.Minute
+	bucketEvictAge  = 5 * time.Minute
+)
 
 type bucket struct {
-	times []time.Time
+	times    []time.Time
+	lastSeen time.Time
 }
 
 type RateLimiter struct {
@@ -21,7 +25,7 @@ func NewRateLimiter(rpm int) *RateLimiter {
 	return &RateLimiter{rpm: rpm, buckets: make(map[string]*bucket)}
 }
 
-func (r *RateLimiter) Allow(userToken string) bool {
+func (r *RateLimiter) Allow(userKey string) bool {
 	if r.rpm <= 0 {
 		return true
 	}
@@ -29,11 +33,12 @@ func (r *RateLimiter) Allow(userToken string) bool {
 	defer r.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-rateLimitWindow)
-	b, ok := r.buckets[userToken]
+	b, ok := r.buckets[userKey]
 	if !ok {
 		b = &bucket{}
-		r.buckets[userToken] = b
+		r.buckets[userKey] = b
 	}
+	b.lastSeen = now
 	valid := b.times[:0]
 	for _, t := range b.times {
 		if t.After(cutoff) {
@@ -45,5 +50,14 @@ func (r *RateLimiter) Allow(userToken string) bool {
 		return false
 	}
 	b.times = append(b.times, now)
+
+	// Lazy eviction of stale buckets
+	if len(r.buckets) > 100 {
+		for k, bk := range r.buckets {
+			if now.Sub(bk.lastSeen) > bucketEvictAge {
+				delete(r.buckets, k)
+			}
+		}
+	}
 	return true
 }

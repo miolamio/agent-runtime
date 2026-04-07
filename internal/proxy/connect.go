@@ -165,7 +165,9 @@ func writeClaudeJSON(path, apiKey string) error {
 	// Generate userID if missing
 	if _, ok := cj["userID"]; !ok {
 		b := make([]byte, 32)
-		rand.Read(b)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("generate userID: %w", err)
+		}
 		cj["userID"] = hex.EncodeToString(b)
 	}
 
