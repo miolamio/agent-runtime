@@ -3,6 +3,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,19 @@ import (
 
 	"github.com/miolamio/agent-runtime/internal/proxy/students"
 )
+
+type contextKey string
+
+const studentContextKey contextKey = "student"
+
+func withStudent(r *http.Request, s *students.Student) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), studentContextKey, s))
+}
+
+func studentFromContext(r *http.Request) *students.Student {
+	s, _ := r.Context().Value(studentContextKey).(*students.Student)
+	return s
+}
 
 // Handler is the main HTTP handler for the proxy.
 type Handler struct {
@@ -56,6 +70,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
+	r = withStudent(r, student)
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -112,17 +127,17 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Extract token the same way as ServeHTTP (x-api-key or Bearer)
+	student := studentFromContext(r)
+	name := "unknown"
+	if student != nil {
+		name = student.Name
+	}
+
 	token := r.Header.Get("x-api-key")
 	if token == "" {
 		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 			token = strings.TrimPrefix(auth, "Bearer ")
 		}
-	}
-	student := h.students.FindByToken(token)
-	name := "unknown"
-	if student != nil {
-		name = student.Name
 	}
 
 	start := time.Now()

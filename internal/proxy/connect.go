@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
+
+	"github.com/miolamio/agent-runtime/internal/keys"
 )
 
 // Connect configures the native Claude Code CLI to use an airun proxy.
@@ -41,7 +41,7 @@ func Connect(proxyURL, token string) error {
 
 	// Validate connection
 	fmt.Print("\n  Connecting... ")
-	models, err := fetchModels(proxyURL, token)
+	models, err := keys.FetchRemoteModels(proxyURL, token)
 	if err != nil {
 		return fmt.Errorf("cannot connect to proxy: %w", err)
 	}
@@ -256,49 +256,6 @@ func detectClaudeVersion() string {
 	}
 	// Fallback: high version to always pass the check
 	return "99.0.0"
-}
-
-// --- network ---
-
-func fetchModels(baseURL, apiKey string) ([]string, error) {
-	url := baseURL + "/v1/models"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("x-api-key", apiKey)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("invalid API key (HTTP 401)")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
-	}
-
-	var models []string
-	for _, m := range result.Data {
-		models = append(models, m.ID)
-	}
-	if len(models) == 0 {
-		return nil, fmt.Errorf("no models available")
-	}
-	return models, nil
 }
 
 // --- settings.json helpers ---
