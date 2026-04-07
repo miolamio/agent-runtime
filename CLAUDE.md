@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Two things in one repo:
 
 1. **Skills Library** — Self-contained skills in `.claude/skills/` for artifact generation, Office formats, design, translation, and browser automation.
-2. **Agent Runtime** — Docker-based infrastructure for running Claude Code agents in isolated containers with multi-provider model routing. CLI: `airun`. Spec: `.development/specification.md`
+2. **Agent Runtime** — Docker-based infrastructure for running Claude Code agents in isolated containers with multi-provider model routing. CLI: `airun` (v0.5.0). Module: `github.com/miolamio/agent-runtime`. Spec: `.development/specification.md` (Russian-language spec describing the broader AUTOMATICA system; `airun` is "layer 2" — the container runtime portion)
 
 ## Build, Test, Run
 
@@ -89,6 +89,52 @@ The most complex subsystem (`internal/proxy/`). An HTTP proxy that lets admins s
 - Per-user rate limiting (configurable RPM)
 - SIGHUP reload (update users without restart)
 - Only replaces `x-api-key` and `User-Agent` headers; everything else passes through unchanged
+
+## Gotchas
+
+- **Parallel agents force `NoState: true`** — prevents Docker volume corruption from concurrent writes to the shared state volume
+- **Kimi-specific env var** — `ContainerEnvWithModel()` automatically adds `ENABLE_TOOL_SEARCH=false` for Kimi provider
+- **Token format** — proxy tokens are `sk-ai-` prefix + 32 bytes random hex = 70 chars total; tests assert this length
+- **Auth header priority** — proxy checks `x-api-key` first, falls back to `Authorization: Bearer <token>`
+- **RPM=0 means unlimited** — not "disabled"; intentional design in rate limiter
+- **Forward client timeout** — 5 minutes for proxied requests; 15 seconds for key validation calls
+- **Provider resolution order** — CLI `--provider` → profile YAML → `~/.airun.env` `ARUN_PROVIDER` → default `zai`
+- **Entrypoint credential filtering** — `docker/entrypoint.sh` strips `[credential]` sections from host git config before copying into container
+- **Build ID tracking** — entrypoint compares `/etc/airun-build-id` (baked in image) with `~/.claude/.image-build-id` (in state volume) and warns on mismatch
+- **Connect-proxy scripts** — `scripts/connect-proxy.sh` and `scripts/connect-proxy.ps1` configure host Claude Code to use proxy; they mark `settings.json` with `_airunManaged` flag for clean disconnect
+
+## Key Domain Types
+
+```go
+// internal/runner — the main run configuration
+type RunOpts struct {
+    Prompt, Provider, Profile, Model, Name, Mount, Output string
+    Loop, Interactive, NoState bool
+    MaxLoops int
+}
+
+// internal/runner — parallel agent spec, parsed from "name:prompt" format
+type AgentSpec struct { Name, Prompt string }
+
+// internal/proxy/students — user record in students.json
+type Student struct {
+    Name string; Token string; Active bool; CreatedAt time.Time
+}
+
+// internal/proxy — YAML config parsed from ~/proxy.yaml
+type ProxyConfig struct {
+    Listen, UserAgent string; RPM int; Providers map[string]Provider
+}
+```
+
+## Test Patterns
+
+Only `internal/proxy/` and `internal/keys/` have tests. All tests use `go test` standard patterns:
+
+- **Temp dirs**: `t.TempDir()` for isolated file-based tests (students.json persistence)
+- **HTTP mocks**: `httptest.NewServer()` for upstream provider simulation; `httptest.NewRequest()` + `httptest.NewRecorder()` for handler-level testing
+- **Fixtures**: All in-test, no shared fixture files. Tests create their own `StudentManager`, proxy configs, etc.
+- **Validation mocks**: Key validation tests mock the Anthropic Messages API response (`{id, type, model, content: [{type, text}]}`) and check exact headers (`x-api-key`, `anthropic-version: 2023-06-01`)
 
 ## Skill Structure
 

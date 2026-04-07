@@ -62,7 +62,7 @@ func Init(configPath, studentsPath string) error {
 	}
 
 	template := `# Proxy Configuration
-listen: ":8080"
+listen: "127.0.0.1:8080"
 rpm: 0
 user_agent: "claude-cli/2.1.80 (external, cli)"
 
@@ -124,7 +124,10 @@ func StudentList(studentsPath string) error {
 		if !s.Active {
 			status = "revoked"
 		}
-		masked := s.Token[:10] + "..." + s.Token[len(s.Token)-4:]
+		masked := s.Token
+		if len(masked) >= 14 {
+			masked = s.Token[:10] + "..." + s.Token[len(s.Token)-4:]
+		}
 		fmt.Printf("  %-20s %-10s %s\n", s.Name, status, masked)
 	}
 	fmt.Println()

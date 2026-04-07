@@ -58,8 +58,8 @@ func TestLoadProxyConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Listen != ":8080" {
-		t.Errorf("default Listen = %q, want :8080", cfg.Listen)
+	if cfg.Listen != "127.0.0.1:8080" {
+		t.Errorf("default Listen = %q, want 127.0.0.1:8080", cfg.Listen)
 	}
 	if cfg.RPM != 0 {
 		t.Errorf("default RPM = %d, want 0", cfg.RPM)

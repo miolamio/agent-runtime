@@ -28,12 +28,12 @@ func LoadProxyConfig(path string) (*ProxyConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read proxy config: %w", err)
 	}
-	cfg := &ProxyConfig{Listen: ":8080", UserAgent: defaultUserAgent}
+	cfg := &ProxyConfig{Listen: "127.0.0.1:8080", UserAgent: defaultUserAgent}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse proxy config: %w", err)
 	}
 	if cfg.Listen == "" {
-		cfg.Listen = ":8080"
+		cfg.Listen = "127.0.0.1:8080"
 	}
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = defaultUserAgent

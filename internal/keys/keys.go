@@ -378,7 +378,10 @@ func AddRemote(envPath string) error {
 // FetchRemoteModels calls GET /v1/models on the proxy.
 func FetchRemoteModels(baseURL, apiKey string) ([]string, error) {
 	url := strings.TrimRight(baseURL, "/") + "/v1/models"
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
 	req.Header.Set("x-api-key", apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}

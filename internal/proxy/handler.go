@@ -77,9 +77,16 @@ func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+const maxRequestBodySize = 10 << 20 // 10 MB
+
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		if err.Error() == "http: request body too large" {
+			jsonError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		jsonError(w, http.StatusBadRequest, "cannot read body")
 		return
 	}

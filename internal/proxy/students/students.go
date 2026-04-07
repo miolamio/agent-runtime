@@ -44,10 +44,7 @@ func (m *Manager) Load() error {
 		return fmt.Errorf("parse %s: %w", m.path, err)
 	}
 	m.students = students
-	m.byToken = make(map[string]*Student, len(students))
-	for i := range m.students {
-		m.byToken[m.students[i].Token] = &m.students[i]
-	}
+	m.rebuildIndex()
 	return nil
 }
 
@@ -58,6 +55,16 @@ func (m *Manager) Save() error {
 		return err
 	}
 	return os.WriteFile(m.path, append(data, '\n'), 0600)
+}
+
+// rebuildIndex reconstructs the byToken map from the current students slice.
+// This must be called after any operation that may reallocate the slice's
+// backing array (e.g. append) to avoid dangling pointers.
+func (m *Manager) rebuildIndex() {
+	m.byToken = make(map[string]*Student, len(m.students))
+	for i := range m.students {
+		m.byToken[m.students[i].Token] = &m.students[i]
+	}
 }
 
 // Add creates a new user with a random token and persists the change.
@@ -76,7 +83,7 @@ func (m *Manager) Add(name string) (string, error) {
 	}
 	s := Student{Name: name, Token: tok, Active: true, CreatedAt: time.Now().UTC()}
 	m.students = append(m.students, s)
-	m.byToken[tok] = &m.students[len(m.students)-1]
+	m.rebuildIndex()
 	if err := m.Save(); err != nil {
 		return "", fmt.Errorf("save: %w", err)
 	}

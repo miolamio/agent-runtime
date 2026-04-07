@@ -260,7 +260,10 @@ func detectClaudeVersion() string {
 
 func fetchModels(baseURL, apiKey string) ([]string, error) {
 	url := baseURL + "/v1/models"
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
 	req.Header.Set("x-api-key", apiKey)
 
 	client := &http.Client{Timeout: 10 * time.Second}

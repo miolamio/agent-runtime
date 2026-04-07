@@ -2,9 +2,11 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -81,4 +83,31 @@ func TestMessagesUnknownModel(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest { t.Errorf("unknown model: status = %d, want 400", rec.Code) }
+}
+
+func TestMessagesBodyTooLarge(t *testing.T) {
+	cfg := &ProxyConfig{
+		Listen:    ":0",
+		UserAgent: "test",
+		Providers: map[string]ProviderEntry{
+			"test": {BaseURL: "http://localhost", APIKey: "key", Models: []string{"m1"}},
+		},
+	}
+	dir := t.TempDir()
+	sp := filepath.Join(dir, "students.json")
+	os.WriteFile(sp, []byte("[]"), 0600)
+	mgr := students.New(sp)
+	tok, _ := mgr.Add("BigUser")
+
+	h := NewHandler(cfg, mgr)
+
+	body := make([]byte, 11<<20) // 11 MB
+	req := httptest.NewRequest("POST", "/v1/messages", bytes.NewReader(body))
+	req.Header.Set("x-api-key", tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", rec.Code)
+	}
 }

@@ -1,6 +1,8 @@
 package students
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -96,5 +98,29 @@ func TestFindByTokenInactive(t *testing.T) {
 	}
 	if s.Active {
 		t.Error("should be inactive")
+	}
+}
+
+func TestAddManyUsersNoCorruption(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "students.json")
+	os.WriteFile(path, []byte("[]"), 0600)
+	mgr := New(path)
+	tokens := make([]string, 50)
+	for i := 0; i < 50; i++ {
+		tok, err := mgr.Add(fmt.Sprintf("user%d", i))
+		if err != nil {
+			t.Fatalf("Add user%d: %v", i, err)
+		}
+		tokens[i] = tok
+	}
+	for i, tok := range tokens {
+		s := mgr.FindByToken(tok)
+		if s == nil {
+			t.Fatalf("FindByToken nil for user%d", i)
+		}
+		if s.Name != fmt.Sprintf("user%d", i) {
+			t.Errorf("name %q, want user%d", s.Name, i)
+		}
 	}
 }

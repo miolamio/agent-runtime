@@ -112,10 +112,10 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
 	if opts.Output != "" {
-		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
+		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops}, provider, model, extraVolumes)
 	}
 
-	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
+	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops}, provider, model, extraVolumes)
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
@@ -151,6 +151,9 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	// Claude Code command (non-interactive only)
 	if !opts.Interactive {
 		args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+		if opts.Loop && opts.MaxLoops > 0 {
+			args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "[airun] docker %s --env-file %s %s\n",
@@ -219,6 +222,9 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 		createArgs = append(createArgs, "-v", v)
 	}
 	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+	if opts.Loop && opts.MaxLoops > 0 {
+		createArgs = append(createArgs, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
+	}
 
 	fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
