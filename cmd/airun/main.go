@@ -393,7 +393,7 @@ func runCheck() {
 		fmt.Printf("Config error: %v\n", err)
 		return
 	}
-	fmt.Println("Config (~/.airun.env):")
+	fmt.Println("Config (~/.airun/config.env):")
 	fmt.Println(cfg.Show())
 	fmt.Println()
 
@@ -449,8 +449,8 @@ Flags:
   --output         Export workspace to this directory after run
   --no-state       Disable persistent state (ephemeral container)
 
-Config: ~/.airun.env (workspace, API keys, provider, mode)
-Profiles: ~/airun-profiles/*.yaml
+Config: ~/.airun/config.env (workspace, API keys, provider, mode)
+Profiles: ~/.airun/profiles/*.yaml
 Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7) | k/kimi (Kimi K2.5) | r/remote (Proxy)
 `)
 }

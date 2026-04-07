@@ -3,7 +3,7 @@ package keys
 import "strings"
 
 // Provider holds metadata for a model provider: identity, registration
-// instructions, API defaults, and the env-var names used in ~/.airun.env.
+// instructions, API defaults, and the env-var names used in ~/.airun/config.env.
 type Provider struct {
 	ID          string
 	Name        string

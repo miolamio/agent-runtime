@@ -16,7 +16,7 @@ type Config struct {
 	SkillsDir string
 	AgentsDir string
 
-	// From .airun.env
+	// From config.env
 	Workspace string // ARUN_WORKSPACE
 	Mode      string // ARUN_MODE (snapshot|bind)
 	Provider  string // ARUN_PROVIDER (zai|minimax)
@@ -59,13 +59,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
 	home := usr.HomeDir
-	envFile := filepath.Join(home, ".airun.env")
+	baseDir := filepath.Join(home, ".airun")
+	envFile := filepath.Join(baseDir, "config.env")
+
+	// Migration: move old ~/.airun.env to new location
+	oldEnvFile := filepath.Join(home, ".airun.env")
+	migrateFile(oldEnvFile, envFile)
 
 	cfg := &Config{
 		Home:      home,
 		EnvFile:   envFile,
-		SkillsDir: filepath.Join(home, "airun-skills"),
-		AgentsDir: filepath.Join(home, "airun-agents"),
+		SkillsDir: filepath.Join(baseDir, "skills"),
+		AgentsDir: filepath.Join(baseDir, "agents"),
 		// Defaults
 		Workspace:      filepath.Join(home, "src"),
 		Mode:           "snapshot",
@@ -82,6 +87,10 @@ func Load() (*Config, error) {
 		APITimeout:     "3000000",
 		DisableTraffic: "1",
 	}
+
+	// Migration: move old dirs to new locations
+	migrateDir(filepath.Join(home, "airun-skills"), cfg.SkillsDir)
+	migrateDir(filepath.Join(home, "airun-agents"), cfg.AgentsDir)
 
 	if err := cfg.loadEnvFile(envFile); err != nil {
 		// Not fatal — use defaults
@@ -256,4 +265,33 @@ func (c *Config) Show() string {
 		c.AnthropicModel, masked(c.AnthropicAPIKey),
 		remoteDisplay, masked(c.RemoteAPIKey),
 		c.APITimeout)
+}
+
+// migrateFile moves a file from old to new path if old exists and new doesn't.
+func migrateFile(oldPath, newPath string) {
+	if _, err := os.Stat(newPath); err == nil {
+		return // new path already exists
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		return // old path doesn't exist
+	}
+	os.MkdirAll(filepath.Dir(newPath), 0700)
+	if err := os.Rename(oldPath, newPath); err == nil {
+		fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldPath, newPath)
+	}
+}
+
+// migrateDir moves a directory from old to new path if old exists and new doesn't.
+func migrateDir(oldPath, newPath string) {
+	if _, err := os.Stat(newPath); err == nil {
+		return
+	}
+	info, err := os.Stat(oldPath)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	os.MkdirAll(filepath.Dir(newPath), 0700)
+	if err := os.Rename(oldPath, newPath); err == nil {
+		fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldPath, newPath)
+	}
 }

@@ -191,5 +191,31 @@ func StudentExport(studentsPath string) error {
 // DefaultPaths returns default proxy config and students file paths.
 func DefaultPaths() (configPath, studentsPath string) {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "proxy.yaml"), filepath.Join(home, "students.json")
+	baseDir := filepath.Join(home, ".airun")
+
+	configPath = filepath.Join(baseDir, "proxy.yaml")
+	studentsPath = filepath.Join(baseDir, "students.json")
+
+	// Migration from old paths
+	oldConfig := filepath.Join(home, "proxy.yaml")
+	oldStudents := filepath.Join(home, "students.json")
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if _, err := os.Stat(oldConfig); err == nil {
+			os.MkdirAll(baseDir, 0700)
+			if os.Rename(oldConfig, configPath) == nil {
+				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldConfig, configPath)
+			}
+		}
+	}
+	if _, err := os.Stat(studentsPath); os.IsNotExist(err) {
+		if _, err := os.Stat(oldStudents); err == nil {
+			os.MkdirAll(baseDir, 0700)
+			if os.Rename(oldStudents, studentsPath) == nil {
+				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldStudents, studentsPath)
+			}
+		}
+	}
+
+	return configPath, studentsPath
 }

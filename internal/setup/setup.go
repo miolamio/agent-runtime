@@ -19,7 +19,7 @@ func Run() error {
 	fmt.Println("Agent Runtime — Setup")
 	fmt.Println()
 
-	envFile := filepath.Join(home, ".airun.env")
+	envFile := filepath.Join(home, ".airun", "config.env")
 	configureKeys := true
 	if _, err := os.Stat(envFile); err == nil {
 		configureKeys = false
@@ -116,12 +116,14 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	// 2. Directories
 	fmt.Println()
 	fmt.Println("  Creating directories...")
+	baseDir := filepath.Join(home, ".airun")
 	dirs := []string{
-		filepath.Join(home, "airun-profiles"),
-		filepath.Join(home, "airun-skills"),
-		filepath.Join(home, "airun-agents"),
-		filepath.Join(home, "airun-commands"),
-		filepath.Join(home, ".airun", "runs"),
+		filepath.Join(baseDir, "profiles"),
+		filepath.Join(baseDir, "skills"),
+		filepath.Join(baseDir, "agents"),
+		filepath.Join(baseDir, "commands"),
+		filepath.Join(baseDir, "runs"),
+		filepath.Join(baseDir, "tmp"),
 	}
 	for _, d := range dirs {
 		os.MkdirAll(d, 0755)
@@ -141,7 +143,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 		}
 	}
 	if entries, err := os.ReadDir(srcProfiles); err == nil {
-		dstDir := filepath.Join(home, "airun-profiles")
+		dstDir := filepath.Join(home, ".airun", "profiles")
 		for _, e := range entries {
 			if filepath.Ext(e.Name()) == ".yaml" {
 				src := filepath.Join(srcProfiles, e.Name())
