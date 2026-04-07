@@ -132,6 +132,14 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	fmt.Println()
 	fmt.Println("  Copying profile templates...")
 	srcProfiles := "configs/profiles"
+	if _, err := os.Stat(srcProfiles); os.IsNotExist(err) {
+		if exe, err := os.Executable(); err == nil {
+			candidate := filepath.Join(filepath.Dir(exe), "..", "configs", "profiles")
+			if _, err := os.Stat(candidate); err == nil {
+				srcProfiles = candidate
+			}
+		}
+	}
 	if entries, err := os.ReadDir(srcProfiles); err == nil {
 		dstDir := filepath.Join(home, "airun-profiles")
 		for _, e := range entries {

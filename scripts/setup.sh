@@ -16,7 +16,7 @@ mkdir -p ~/.claude-code-router
 
 if [[ -d "$PROJECT_DIR/configs/profiles" ]]; then
   log "Copying profile examples to ~/airun-profiles/"
-  cp -n "$PROJECT_DIR"/configs/profiles/*.env.example ~/airun-profiles/ 2>/dev/null || true
+  cp -n "$PROJECT_DIR"/configs/profiles/*.yaml ~/airun-profiles/ 2>/dev/null || true
 fi
 
 if [[ -d "$PROJECT_DIR/examples/skills" ]]; then

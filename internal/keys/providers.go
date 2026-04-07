@@ -66,6 +66,22 @@ var providers = []Provider{
 		EnvModel:   "KIMI_MODEL",
 	},
 	{
+		ID:          "anthropic",
+		Name:        "Anthropic",
+		RegisterURL: "https://console.anthropic.com",
+		Steps: []string{
+			"Go to https://console.anthropic.com",
+			"Sign up / Sign in",
+			"Navigate to API Keys → Create Key",
+			"Copy the key (starts with sk-ant-)",
+		},
+		BaseURL:    "https://api.anthropic.com",
+		Model:      "claude-sonnet-4-6-20250514",
+		EnvKey:     "ANTHROPIC_API_KEY",
+		EnvBaseURL: "ANTHROPIC_BASE_URL_DIRECT",
+		EnvModel:   "ANTHROPIC_MODEL",
+	},
+	{
 		ID:          "remote",
 		Name:        "Remote",
 		RegisterURL: "",
@@ -98,8 +114,10 @@ func ProviderByAlias(alias string) *Provider {
 		idx = 1
 	case "k", "kimi":
 		idx = 2
-	case "r", "remote":
+	case "a", "anthropic":
 		idx = 3
+	case "r", "remote":
+		idx = 4
 	default:
 		return nil
 	}

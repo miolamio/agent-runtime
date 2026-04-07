@@ -73,6 +73,8 @@ func Run(cfg *config.Config, opts RunOpts) error {
 			model = cfg.MinimaxModel
 		case "kimi":
 			model = cfg.KimiModel
+		case "anthropic":
+			model = cfg.AnthropicModel
 		case "remote":
 			model = cfg.RemoteDefaultModel
 		default:
@@ -144,6 +146,10 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 
 	for _, v := range extraVolumes {
 		args = append(args, "-v", v)
+	}
+
+	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
+		args = append(args, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
 	}
 
 	args = append(args, imageName)
@@ -220,6 +226,9 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	}
 	for _, v := range extraVolumes {
 		createArgs = append(createArgs, "-v", v)
+	}
+	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
+		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
 	}
 	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
 	if opts.Loop && opts.MaxLoops > 0 {

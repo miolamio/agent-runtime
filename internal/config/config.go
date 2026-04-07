@@ -37,6 +37,11 @@ type Config struct {
 	KimiBaseURL string
 	KimiModel   string
 
+	// Anthropic (direct)
+	AnthropicAPIKey  string
+	AnthropicBaseURL string
+	AnthropicModel   string
+
 	// Remote proxy
 	RemoteBaseURL      string
 	RemoteAPIKey       string
@@ -70,8 +75,10 @@ func Load() (*Config, error) {
 		ZaiHaikuModel:  "GLM-4.5-Air",
 		MinimaxBaseURL: "https://api.minimax.io/anthropic",
 		MinimaxModel:   "MiniMax-M2.7",
-		KimiBaseURL:    "https://api.kimi.com/coding/",
-		KimiModel:      "kimi-k2.5",
+		KimiBaseURL:      "https://api.kimi.com/coding/",
+		KimiModel:        "kimi-k2.5",
+		AnthropicBaseURL: "https://api.anthropic.com",
+		AnthropicModel:   "claude-sonnet-4-6-20250514",
 		APITimeout:     "3000000",
 		DisableTraffic: "1",
 	}
@@ -131,6 +138,12 @@ func (c *Config) loadEnvFile(path string) error {
 			c.KimiBaseURL = val
 		case "KIMI_MODEL":
 			c.KimiModel = val
+		case "ANTHROPIC_API_KEY":
+			c.AnthropicAPIKey = val
+		case "ANTHROPIC_BASE_URL_DIRECT":
+			c.AnthropicBaseURL = val
+		case "ANTHROPIC_MODEL":
+			c.AnthropicModel = val
 		case "REMOTE_BASE_URL":
 			c.RemoteBaseURL = val
 		case "REMOTE_API_KEY":
@@ -155,6 +168,8 @@ func NormalizeProvider(p string) string {
 		return "minimax"
 	case "k", "kimi":
 		return "kimi"
+	case "a", "anthropic":
+		return "anthropic"
 	case "r", "remote":
 		return "remote"
 	case "z", "zai", "":
@@ -180,6 +195,10 @@ func (c *Config) ContainerEnvWithModel(provider, modelOverride string) []string 
 		baseURL = c.KimiBaseURL
 		apiKey = c.KimiAPIKey
 		model = c.KimiModel
+	case "anthropic":
+		baseURL = c.AnthropicBaseURL
+		apiKey = c.AnthropicAPIKey
+		model = c.AnthropicModel
 	case "remote":
 		baseURL = c.RemoteBaseURL
 		apiKey = c.RemoteAPIKey
@@ -227,12 +246,14 @@ func (c *Config) Show() string {
   Z.AI:       %s (key: %s)
   MiniMax:    %s (key: %s)
   Kimi:       %s (key: %s)
+  Anthropic:  %s (key: %s)
   Remote:     %s (key: %s)
   Timeout:    %s ms`,
 		c.Workspace, c.Mode, c.Provider,
 		c.ZaiModel, masked(c.ZaiAPIKey),
 		c.MinimaxModel, masked(c.MinimaxAPIKey),
 		c.KimiModel, masked(c.KimiAPIKey),
+		c.AnthropicModel, masked(c.AnthropicAPIKey),
 		remoteDisplay, masked(c.RemoteAPIKey),
 		c.APITimeout)
 }

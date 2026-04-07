@@ -10,6 +10,7 @@ func TestProviderByAlias(t *testing.T) {
 		{"z", "zai"}, {"zai", "zai"},
 		{"m", "minimax"}, {"mm", "minimax"}, {"minimax", "minimax"},
 		{"k", "kimi"}, {"kimi", "kimi"},
+		{"a", "anthropic"}, {"anthropic", "anthropic"},
 		{"r", "remote"}, {"remote", "remote"},
 	}
 	for _, tt := range tests {
@@ -31,7 +32,7 @@ func TestProviderByAliasUnknown(t *testing.T) {
 
 func TestAllProviders(t *testing.T) {
 	all := AllProviders()
-	if len(all) != 4 {
-		t.Fatalf("AllProviders() returned %d, want 4", len(all))
+	if len(all) != 5 {
+		t.Fatalf("AllProviders() returned %d, want 5", len(all))
 	}
 }
