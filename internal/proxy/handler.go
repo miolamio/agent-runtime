@@ -126,6 +126,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.URL.Path = "/v1/messages"
 
 	student := studentFromContext(r)
 	name := "unknown"

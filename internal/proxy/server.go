@@ -52,6 +52,10 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 	log.Printf("[proxy] Users: %d active", userCount)
 	log.Printf("[proxy] Rate limit: %s", rpmStr)
 
+	if cfg.TLSCert != "" && cfg.TLSKey != "" {
+		log.Printf("[proxy] TLS enabled (cert: %s)", cfg.TLSCert)
+		return http.ListenAndServeTLS(cfg.Listen, cfg.TLSCert, cfg.TLSKey, handler)
+	}
 	return http.ListenAndServe(cfg.Listen, handler)
 }
 
@@ -85,6 +89,10 @@ providers:
   #   api_key: "YOUR_KEY"
   #   models:
   #     - kimi-k2.5
+
+# TLS (optional — uncomment for direct HTTPS without reverse proxy)
+# tls_cert: "/path/to/cert.pem"
+# tls_key: "/path/to/key.pem"
 `
 
 	if err := os.WriteFile(configPath, []byte(template), 0600); err != nil {

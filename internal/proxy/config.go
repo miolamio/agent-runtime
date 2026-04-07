@@ -20,6 +20,8 @@ type ProxyConfig struct {
 	Listen    string                   `yaml:"listen"`
 	RPM       int                      `yaml:"rpm"`
 	UserAgent string                   `yaml:"user_agent"`
+	TLSCert   string                   `yaml:"tls_cert"`
+	TLSKey    string                   `yaml:"tls_key"`
 	Providers map[string]ProviderEntry `yaml:"providers"`
 }
 

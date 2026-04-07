@@ -89,6 +89,26 @@ func TestResolveModel(t *testing.T) {
 	}
 }
 
+func TestLoadProxyConfig_TLS(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "proxy.yaml")
+	os.WriteFile(path, []byte(`listen: ":8443"
+tls_cert: "/etc/ssl/cert.pem"
+tls_key: "/etc/ssl/key.pem"
+providers: {}
+`), 0600)
+	cfg, err := LoadProxyConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLSCert != "/etc/ssl/cert.pem" {
+		t.Errorf("TLSCert = %q", cfg.TLSCert)
+	}
+	if cfg.TLSKey != "/etc/ssl/key.pem" {
+		t.Errorf("TLSKey = %q", cfg.TLSKey)
+	}
+}
+
 func TestAllModels(t *testing.T) {
 	cfg := &ProxyConfig{
 		Providers: map[string]ProviderEntry{
