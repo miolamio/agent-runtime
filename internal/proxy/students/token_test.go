@@ -19,6 +19,21 @@ func TestGenerateToken(t *testing.T) {
 	}
 }
 
+func TestHashToken(t *testing.T) {
+	tok := "sk-ai-abcdef1234567890"
+	h1 := HashToken(tok)
+	h2 := HashToken(tok)
+	if h1 != h2 {
+		t.Error("HashToken not deterministic")
+	}
+	if len(h1) != 64 {
+		t.Errorf("hash length = %d, want 64", len(h1))
+	}
+	if HashToken("different") == h1 {
+		t.Error("different inputs produced same hash")
+	}
+}
+
 func TestGenerateTokenUniqueness(t *testing.T) {
 	tokens := make(map[string]bool)
 	for i := 0; i < 100; i++ {

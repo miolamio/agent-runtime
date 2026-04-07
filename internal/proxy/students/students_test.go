@@ -50,10 +50,15 @@ func TestRevoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := mgr.FindByToken(tok)
-	if s == nil {
-		t.Fatal("FindByToken returned nil after revoke")
+	if s != nil {
+		t.Error("FindByToken should return nil for revoked user")
 	}
-	if s.Active {
+	// Verify user still exists in list but is inactive
+	all := mgr.List()
+	if len(all) != 1 {
+		t.Fatalf("List() len = %d, want 1", len(all))
+	}
+	if all[0].Active {
 		t.Error("revoked user should be inactive")
 	}
 }
@@ -93,11 +98,8 @@ func TestFindByTokenInactive(t *testing.T) {
 	tok, _ := mgr.Add("Ivanov")
 	mgr.Revoke("Ivanov")
 	s := mgr.FindByToken(tok)
-	if s == nil {
-		t.Fatal("FindByToken should return inactive user")
-	}
-	if s.Active {
-		t.Error("should be inactive")
+	if s != nil {
+		t.Error("FindByToken should return nil for inactive user")
 	}
 }
 

@@ -1,9 +1,11 @@
 package students
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,18 +22,18 @@ type Student struct {
 type Manager struct {
 	path     string
 	students []Student
-	byToken  map[string]*Student
 	mu       sync.RWMutex
 }
 
 // New creates a Manager for the given file path and attempts to load existing data.
 func New(path string) *Manager {
-	m := &Manager{path: path, byToken: make(map[string]*Student)}
+	m := &Manager{path: path}
 	m.Load()
 	return m
 }
 
-// Load reads users from the JSON file on disk.
+// Load reads users from the JSON file on disk. Plaintext tokens (sk-ai- prefix)
+// are automatically migrated to SHA-256 hashes.
 func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -43,8 +45,17 @@ func (m *Manager) Load() error {
 	if err := json.Unmarshal(data, &students); err != nil {
 		return fmt.Errorf("parse %s: %w", m.path, err)
 	}
+	migrated := false
+	for i := range students {
+		if strings.HasPrefix(students[i].Token, tokenPrefix) {
+			students[i].Token = HashToken(students[i].Token)
+			migrated = true
+		}
+	}
 	m.students = students
-	m.rebuildIndex()
+	if migrated {
+		m.Save()
+	}
 	return nil
 }
 
@@ -57,18 +68,8 @@ func (m *Manager) Save() error {
 	return os.WriteFile(m.path, append(data, '\n'), 0600)
 }
 
-// rebuildIndex reconstructs the byToken map from the current students slice.
-// This must be called after any operation that may reallocate the slice's
-// backing array (e.g. append) to avoid dangling pointers.
-func (m *Manager) rebuildIndex() {
-	m.byToken = make(map[string]*Student, len(m.students))
-	for i := range m.students {
-		m.byToken[m.students[i].Token] = &m.students[i]
-	}
-}
-
 // Add creates a new user with a random token and persists the change.
-// Returns an error if a user with the same name already exists.
+// The token is stored as a SHA-256 hash; the raw token is returned to the caller.
 func (m *Manager) Add(name string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -81,9 +82,9 @@ func (m *Manager) Add(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s := Student{Name: name, Token: tok, Active: true, CreatedAt: time.Now().UTC()}
+	hashed := HashToken(tok)
+	s := Student{Name: name, Token: hashed, Active: true, CreatedAt: time.Now().UTC()}
 	m.students = append(m.students, s)
-	m.rebuildIndex()
 	if err := m.Save(); err != nil {
 		return "", fmt.Errorf("save: %w", err)
 	}
@@ -116,11 +117,19 @@ func (m *Manager) Restore(name string) error {
 	return fmt.Errorf("user %q not found", name)
 }
 
-// FindByToken returns a pointer to the user with the given token, or nil.
+// FindByToken hashes the incoming token and performs a constant-time comparison
+// against all stored hashes. Returns nil if no active match is found.
 func (m *Manager) FindByToken(token string) *Student {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.byToken[token]
+	hashed := HashToken(token)
+	hashedBytes := []byte(hashed)
+	for i := range m.students {
+		if m.students[i].Active && subtle.ConstantTimeCompare([]byte(m.students[i].Token), hashedBytes) == 1 {
+			return &m.students[i]
+		}
+	}
+	return nil
 }
 
 // List returns a copy of all users.
