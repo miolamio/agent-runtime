@@ -153,6 +153,27 @@ echo "[airun] claude.json: onboarding=${INSTALLED_VER}" >&2
 # ── Ready signal ──
 echo "[airun] ready ts=$(date +%s)" >&2
 
+# ── Browser display (VNC / CDP) ──
+if [ "${AIRUN_BROWSER}" = "vnc" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
+    echo "[airun] Starting virtual display + VNC + noVNC..." >&2
+    export DISPLAY=:99
+    Xvfb :99 -screen 0 1920x1080x24 -ac &>/dev/null &
+    sleep 0.5
+    x11vnc -display :99 -forever -shared -nopw -rfbport 5900 &>/dev/null &
+    /opt/noVNC/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &>/dev/null &
+    echo "[airun] noVNC available at http://localhost:6080" >&2
+fi
+
+if [ "${AIRUN_BROWSER}" = "cdp" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
+    echo "[airun] CDP remote debugging enabled on port 9222" >&2
+    export PLAYWRIGHT_CHROMIUM_ARGS="--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0"
+fi
+
+# Set DISPLAY for Playwright headed mode if VNC is active
+if [ -n "${DISPLAY}" ]; then
+    export PLAYWRIGHT_BROWSERS_PATH=/home/${_USER}/.cache/ms-playwright
+fi
+
 # ── Drop to non-root user and exec ──
 if [ "${1#-}" != "${1}" ] || [ -z "$(command -v "${1}" 2>/dev/null)" ]; then
     set -- claude "$@"

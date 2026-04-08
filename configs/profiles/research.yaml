@@ -1,13 +1,13 @@
-name: dev
-description: Full-stack development with TDD, security, and browser testing
+name: research
+description: Deep research with web browsing, NotebookLM, and diagrams
 provider: z
 skills:
-  - claude-code-best-practices
-  - webapp-testing
+  - excalidraw-diagram
+  - doc-coauthoring
 plugins:
   - superpowers@superpowers-marketplace
   - context7@claude-plugins-official
-  - security-guidance@claude-plugins-official
+  - notebooklm-mcp@miolamio-agent-skills
   - playwright-cli@miolamio-agent-skills
 settings:
   effortLevel: high

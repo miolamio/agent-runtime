@@ -34,6 +34,16 @@ type RunOpts struct {
 	Mount       string // explicit mount path (overrides config workspace)
 	Output      string // export workspace to this directory after run
 	NoState     bool   // disable persistent state volume (ephemeral)
+	Browser     string // vnc | cdp | both — enable browser display
+}
+
+// stateVolumeForProfile returns the Docker volume name for the given profile.
+// Without a profile, returns the default volume name.
+func stateVolumeForProfile(profile string) string {
+	if profile == "" {
+		return stateVolumeName
+	}
+	return "airun-state-" + profile
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
@@ -111,17 +121,17 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	if opts.Interactive {
 		fmt.Fprintf(os.Stderr, "[airun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
-		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState}, provider, model, extraVolumes)
+		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Browser: opts.Browser}, provider, model, extraVolumes)
 	}
 
 	// Fix 2: log actual mount, not config.Workspace
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
 	if opts.Output != "" {
-		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops}, provider, model, extraVolumes)
+		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops, Browser: opts.Browser}, provider, model, extraVolumes)
 	}
 
-	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops}, provider, model, extraVolumes)
+	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops, Browser: opts.Browser}, provider, model, extraVolumes)
 }
 
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
@@ -154,7 +164,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 		args = append(args, "-v", opts.Mount+":/workspace")
 	}
 	if !opts.NoState {
-		args = append(args, "-v", stateVolumeName+":"+stateMountPath)
+		args = append(args, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
 	}
 
 	for _, v := range extraVolumes {
@@ -163,6 +173,16 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 
 	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
 		args = append(args, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+	}
+
+	if opts.Browser != "" {
+		args = append(args, "-e", "AIRUN_BROWSER="+opts.Browser)
+		if opts.Browser == "vnc" || opts.Browser == "both" {
+			args = append(args, "-p", "6080:6080")
+		}
+		if opts.Browser == "cdp" || opts.Browser == "both" {
+			args = append(args, "-p", "9222:9222")
+		}
 	}
 
 	args = append(args, imageName)
@@ -227,7 +247,7 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 
 	// No -v for workspace — we'll docker cp instead
 	if !opts.NoState {
-		createArgs = append(createArgs, "-v", stateVolumeName+":"+stateMountPath)
+		createArgs = append(createArgs, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
 	}
 	for _, v := range extraVolumes {
 		createArgs = append(createArgs, "-v", v)
@@ -235,6 +255,16 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 
 	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
 		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+	}
+
+	if opts.Browser != "" {
+		createArgs = append(createArgs, "-e", "AIRUN_BROWSER="+opts.Browser)
+		if opts.Browser == "vnc" || opts.Browser == "both" {
+			createArgs = append(createArgs, "-p", "6080:6080")
+		}
+		if opts.Browser == "cdp" || opts.Browser == "both" {
+			createArgs = append(createArgs, "-p", "9222:9222")
+		}
 	}
 
 	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
@@ -314,13 +344,22 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
 	if !opts.NoState {
-		createArgs = append(createArgs, "-v", stateVolumeName+":"+stateMountPath)
+		createArgs = append(createArgs, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
 	}
 	for _, v := range extraVolumes {
 		createArgs = append(createArgs, "-v", v)
 	}
 	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
 		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+	}
+	if opts.Browser != "" {
+		createArgs = append(createArgs, "-e", "AIRUN_BROWSER="+opts.Browser)
+		if opts.Browser == "vnc" || opts.Browser == "both" {
+			createArgs = append(createArgs, "-p", "6080:6080")
+		}
+		if opts.Browser == "cdp" || opts.Browser == "both" {
+			createArgs = append(createArgs, "-p", "9222:9222")
+		}
 	}
 	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
 	if opts.Loop && opts.MaxLoops > 0 {

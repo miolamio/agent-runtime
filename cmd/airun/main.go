@@ -291,6 +291,7 @@ func main() {
 	name := fs.String("name", "", "Agent name")
 	output := fs.String("output", "", "Export workspace to this directory after run")
 	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
+	browser := fs.String("browser", "", "Browser display: vnc | cdp | both")
 	parallel := fs.Bool("parallel", false, "Run agents in parallel")
 	var agents []string
 	fs.Func("agent", "Agent spec 'name:prompt' (repeatable, use with --parallel)", func(s string) error {
@@ -339,6 +340,7 @@ func main() {
 		Name:     *name,
 		Output:   *output,
 		NoState:  *noState,
+		Browser:  *browser,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -355,6 +357,7 @@ func runShell(args []string) {
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
 	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
+	browser := fs.String("browser", "", "Browser display: vnc | cdp | both")
 	fs.Parse(args)
 
 	cfg, err := config.Load()
@@ -370,6 +373,7 @@ func runShell(args []string) {
 		Profile:     *profileName,
 		Mount:       *mount,
 		NoState:     *noState,
+		Browser:     *browser,
 	}
 	if err := runner.Run(cfg, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -448,6 +452,7 @@ Flags:
   -m, --model      Model override (e.g. kimi-k2.5, glm-5.1, MiniMax-M2.7)
   --output         Export workspace to this directory after run
   --no-state       Disable persistent state (ephemeral container)
+  --browser        Browser display in container: vnc | cdp | both (maps ports 6080/9222)
 
 Config: ~/.airun/config.env (workspace, API keys, provider, mode)
 Profiles: ~/.airun/profiles/*.yaml

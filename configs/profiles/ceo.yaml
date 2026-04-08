@@ -1,0 +1,13 @@
+name: ceo
+description: Strategy, planning, and executive communications
+provider: z
+skills:
+  - internal-comms
+plugins:
+  - superpowers@superpowers-marketplace
+  - context7@claude-plugins-official
+  # gstack requires macOS Apple Silicon — works on host only, not in containers
+  # - gstack@gstack-marketplace
+settings:
+  effortLevel: high
+  alwaysThinkingEnabled: true

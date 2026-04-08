@@ -29,6 +29,18 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     fonts-liberation fonts-noto-color-emoji \
     && locale-gen en_US.UTF-8
 
+# ── Virtual display + VNC for browser viewing ──
+RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    xvfb x11vnc \
+    && rm -rf /var/lib/apt/lists/*
+
+# noVNC (web-based VNC client)
+RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/noVNC \
+    && git clone --depth 1 https://github.com/novnc/websockify.git /opt/noVNC/utils/websockify \
+    && ln -s /opt/noVNC/vnc.html /opt/noVNC/index.html
+
 # ── Non-root user ──
 RUN groupadd --gid 1001 ${USERNAME} \
     && useradd --uid 1001 --gid ${USERNAME} -m -s /bin/zsh ${USERNAME} \
