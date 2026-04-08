@@ -1,6 +1,7 @@
 # airun v0.6.0 — Changelog & Remaining Work
 
 > Date: 2026-04-08
+> Status: Shipped, Docker image built, testing in progress
 
 ## What was done (14 commits)
 
@@ -76,6 +77,48 @@ Full plan: `docs/superpowers/plans/2026-04-07-airun-roadmap.md`
 | **Total new tests** | | **25** |
 
 Test packages with tests: 2 → 6. `go test -race ./...` green.
+
+---
+
+## Current state & testing notes
+
+**Build:** Docker image `agent-runtime:latest` built successfully (2026-04-08).
+
+**Usage:**
+```bash
+# Rebuild binary after code changes (always needed!)
+go build -o bin/airun ./cmd/airun/
+
+# Copy profile templates to ~/.airun/profiles/ (one-time)
+cp configs/profiles/*.yaml ~/.airun/profiles/
+
+# Run with profile
+./bin/airun shell -p dev
+./bin/airun shell -p research --browser vnc    # noVNC at http://localhost:6080
+./bin/airun shell -p ceo
+
+# Run without profile (default state volume)
+./bin/airun shell
+```
+
+**Known issues found during testing:**
+- Profile YAML templates are in `configs/profiles/` but `airun init` may fail to copy them when running from `~/.local/bin/` (partial fix applied — resolves relative to executable, but edge cases remain)
+- noVNC browser viewing needs manual verification (Xvfb + x11vnc + noVNC chain in container)
+- Profile plugins install via `post-init.sh` — depends on Claude Code `claude plugin install` being available in container at startup
+
+**Per-profile state volumes:**
+```
+airun-state-research   # ~/.claude inside container for research profile
+airun-state-dev        # ~/.claude inside container for dev profile
+airun-state-ceo        # ~/.claude inside container for ceo profile
+airun-claude-state     # default (no profile specified)
+```
+
+**Metrics:**
+- 15 commits total on main
+- 30 files changed, ~3500 lines added
+- 25 new tests, 6 packages covered
+- `go test -race ./...` green
 
 ---
 
