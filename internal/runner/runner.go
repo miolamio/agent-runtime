@@ -46,6 +46,14 @@ func stateVolumeForProfile(profile string) string {
 	return "airun-state-" + profile
 }
 
+// cleanupContainer removes the named container; a failure is logged to stderr
+// but not propagated — the caller's primary result should remain authoritative.
+func cleanupContainer(name string) {
+	if err := exec.Command("docker", "rm", name).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "[airun] warning: docker rm %s: %v\n", name, err)
+	}
+}
+
 func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
@@ -282,9 +290,7 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 		fmt.Fprintf(os.Stderr, "[airun] copying %s → container:/workspace\n", opts.Mount)
 		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
 		if out, err := cpCmd.CombinedOutput(); err != nil {
-			if rmErr := exec.Command("docker", "rm", containerName).Run(); rmErr != nil {
-				fmt.Fprintf(os.Stderr, "[airun] warning: docker rm %s: %v\n", containerName, rmErr)
-			}
+			cleanupContainer(containerName)
 			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
 		}
 	}
@@ -303,10 +309,7 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 		exitCode = 1
 	}
 
-	// Cleanup container
-	if rmErr := exec.Command("docker", "rm", containerName).Run(); rmErr != nil {
-		fmt.Fprintf(os.Stderr, "[airun] warning: docker rm %s: %v\n", containerName, rmErr)
-	}
+	cleanupContainer(containerName)
 
 	// Save history
 	rec := history.RunRecord{
@@ -380,9 +383,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 		fmt.Fprintf(os.Stderr, "[airun] snapshot mode: copying %s → container:/workspace\n", opts.Mount)
 		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
 		if out, err := cpCmd.CombinedOutput(); err != nil {
-			if rmErr := exec.Command("docker", "rm", containerName).Run(); rmErr != nil {
-				fmt.Fprintf(os.Stderr, "[airun] warning: docker rm %s: %v\n", containerName, rmErr)
-			}
+			cleanupContainer(containerName)
 			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
 		}
 	}
@@ -410,9 +411,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 		fmt.Fprintf(os.Stderr, "[airun] exported workspace to %s\n", opts.Output)
 	}
 
-	if rmErr := exec.Command("docker", "rm", containerName).Run(); rmErr != nil {
-		fmt.Fprintf(os.Stderr, "[airun] warning: docker rm %s: %v\n", containerName, rmErr)
-	}
+	cleanupContainer(containerName)
 
 	rec := history.RunRecord{
 		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
