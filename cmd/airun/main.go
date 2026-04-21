@@ -60,8 +60,17 @@ func main() {
 				fmt.Println("No state volume found. Will be created on first run.")
 			}
 		case "reset":
-			exec.Command("docker", "volume", "rm", "airun-claude-state").Run()
-			fmt.Println("[airun] state volume removed. Will be re-seeded on next run.")
+			out, err := exec.Command("docker", "volume", "rm", "airun-claude-state").CombinedOutput()
+			if err != nil {
+				if strings.Contains(string(out), "no such volume") {
+					fmt.Println("[airun] no state volume to remove.")
+				} else {
+					fmt.Fprintf(os.Stderr, "[airun] docker volume rm failed: %s\n", strings.TrimSpace(string(out)))
+					os.Exit(1)
+				}
+			} else {
+				fmt.Println("[airun] state volume removed. Will be re-seeded on next run.")
+			}
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown state subcommand: %s\n", os.Args[2])
 			os.Exit(1)
