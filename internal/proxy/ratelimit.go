@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,17 +17,26 @@ type bucket struct {
 }
 
 type RateLimiter struct {
-	rpm     int
+	rpm     atomic.Int64
 	buckets map[string]*bucket
 	mu      sync.Mutex
 }
 
 func NewRateLimiter(rpm int) *RateLimiter {
-	return &RateLimiter{rpm: rpm, buckets: make(map[string]*bucket)}
+	r := &RateLimiter{buckets: make(map[string]*bucket)}
+	r.rpm.Store(int64(rpm))
+	return r
+}
+
+// SetRPM updates the per-user rate limit without discarding existing buckets.
+// A value <= 0 disables rate limiting.
+func (r *RateLimiter) SetRPM(rpm int) {
+	r.rpm.Store(int64(rpm))
 }
 
 func (r *RateLimiter) Allow(userKey string) bool {
-	if r.rpm <= 0 {
+	rpm := int(r.rpm.Load())
+	if rpm <= 0 {
 		return true
 	}
 	r.mu.Lock()
@@ -46,7 +56,7 @@ func (r *RateLimiter) Allow(userKey string) bool {
 		}
 	}
 	b.times = valid
-	if len(b.times) >= r.rpm {
+	if len(b.times) >= rpm {
 		return false
 	}
 	b.times = append(b.times, now)

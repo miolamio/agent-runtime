@@ -28,7 +28,8 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 	mgr := students.New(studentsPath)
 	handler := NewHandler(cfg, mgr)
 
-	// SIGHUP reloads users
+	// SIGHUP reloads users + proxy.yaml (providers, rpm, user_agent).
+	// Listen/TLS fields are not hot-swappable — changes are logged and ignored.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGHUP)
 	go func() {
@@ -38,6 +39,27 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 			} else {
 				log.Printf("[proxy] users reloaded (%d total)", len(mgr.List()))
 			}
+			newCfg, err := LoadProxyConfig(configPath)
+			if err != nil {
+				log.Printf("[proxy] reload config error: %v", err)
+				continue
+			}
+			current := handler.config.Load()
+			if newCfg.Listen != current.Listen {
+				if listenOverride == "" {
+					log.Printf("[proxy] warning: listen address change (%s → %s) requires restart; ignoring",
+						current.Listen, newCfg.Listen)
+				}
+				newCfg.Listen = current.Listen
+			}
+			if newCfg.TLSCert != current.TLSCert || newCfg.TLSKey != current.TLSKey {
+				log.Printf("[proxy] warning: TLS cert/key change requires restart; ignoring")
+				newCfg.TLSCert = current.TLSCert
+				newCfg.TLSKey = current.TLSKey
+			}
+			handler.ReloadConfig(newCfg)
+			log.Printf("[proxy] config reloaded (%d providers, %d models, rpm=%d)",
+				len(newCfg.Providers), len(newCfg.AllModels()), newCfg.RPM)
 		}
 	}()
 

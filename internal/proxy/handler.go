@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/miolamio/agent-runtime/internal/proxy/students"
@@ -30,7 +31,7 @@ func studentFromContext(r *http.Request) *students.Student {
 
 // Handler is the main HTTP handler for the proxy.
 type Handler struct {
-	config   *ProxyConfig
+	config   atomic.Pointer[ProxyConfig]
 	students *students.Manager
 	limiter  *RateLimiter
 	mux      *http.ServeMux
@@ -39,14 +40,22 @@ type Handler struct {
 // NewHandler creates a proxy handler.
 func NewHandler(cfg *ProxyConfig, mgr *students.Manager) *Handler {
 	h := &Handler{
-		config:   cfg,
 		students: mgr,
 		limiter:  NewRateLimiter(cfg.RPM),
 		mux:      http.NewServeMux(),
 	}
+	h.config.Store(cfg)
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
 	h.mux.HandleFunc("POST /v1/messages", h.handleMessages)
 	return h
+}
+
+// ReloadConfig atomically swaps the live ProxyConfig and syncs the rate
+// limiter. Listen/TLS fields are not reloaded (restart required); callers
+// must compare and warn before invoking this.
+func (h *Handler) ReloadConfig(cfg *ProxyConfig) {
+	h.config.Store(cfg)
+	h.limiter.SetRPM(cfg.RPM)
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +89,8 @@ func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object  string `json:"object"`
 		Created int64  `json:"created"`
 	}
-	models := h.config.AllModels()
+	cfg := h.config.Load()
+	models := cfg.AllModels()
 	data := make([]modelEntry, len(models))
 	for i, m := range models {
 		data[i] = modelEntry{ID: m, Object: "model", Created: time.Now().Unix()}
@@ -119,7 +129,8 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, ok := h.config.ResolveModel(req.Model)
+	cfg := h.config.Load()
+	provider, ok := cfg.ResolveModel(req.Model)
 	if !ok {
 		jsonError(w, http.StatusBadRequest, fmt.Sprintf("unknown model: %s", req.Model))
 		return
@@ -142,7 +153,7 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	ForwardRequest(w, r, provider.BaseURL, provider.APIKey, h.config.UserAgent)
+	ForwardRequest(w, r, provider.BaseURL, provider.APIKey, cfg.UserAgent)
 	latency := time.Since(start)
 
 	masked := token
