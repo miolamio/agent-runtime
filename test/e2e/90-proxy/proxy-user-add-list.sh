@@ -19,16 +19,16 @@ if ! [[ "$token" =~ ^sk-ai-[0-9a-f]{64}$ ]]; then
 fi
 
 # Security invariant: the plaintext token must NEVER be persisted to disk.
-# students.json holds the SHA256 hash; the plaintext is printed to the admin
+# students.json holds a bcrypt hash; the plaintext is printed to the admin
 # once at add time and never again.
 json=$(cat "$th/.airun/students.json")
 assert_contains     "$json" '"name": "alice"' "user recorded under its name"
 assert_contains     "$json" '"active": true'  "user recorded as active"
 assert_not_contains "$json" "$token"          "plaintext token is NOT persisted"
-# Hash appears as a 64-hex string in the "token" field. We can't recompute
-# SHA256 portably in pure bash, so just sanity-check the shape.
-hashed=$(echo "$json" | awk -F'"' '/"token":/ {print $4}')
-if ! [[ "$hashed" =~ ^[0-9a-f]{64}$ ]]; then
+# bcrypt hash shape: $2<a|b|y>$<cost>$<22salt+31hash> = 60 chars total.
+# Dollar signs confuse awk's default FS when inside quoted JSON, so pull via grep.
+hashed=$(echo "$json" | grep -oE '"token": *"[^"]+"' | sed 's/^"token": *"\(.*\)"/\1/')
+if ! [[ "$hashed" =~ ^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$ ]]; then
     die "stored token hash shape unexpected: '$hashed'"
 fi
 
