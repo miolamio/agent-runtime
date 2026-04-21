@@ -120,8 +120,8 @@ func appendStateAndExtras(args []string, cfg *config.Config, opts RunOpts, extra
 func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
+	var extraEnv []string
 	var settingsTmp string
-	var pluginScriptTmp string
 	if opts.Profile != "" {
 		prof, err := profile.Load(opts.Profile)
 		if err != nil {
@@ -129,15 +129,12 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		}
 		fmt.Fprintf(os.Stderr, "[airun] profile=%s (%s)\n", prof.Name, prof.Description)
 
-		extraVolumes, settingsTmp, pluginScriptTmp, err = profileMounts(prof)
+		extraVolumes, settingsTmp, extraEnv, err = profileMounts(prof)
 		if err != nil {
 			return fmt.Errorf("profile mounts: %w", err)
 		}
 		if settingsTmp != "" {
 			defer os.Remove(settingsTmp)
-		}
-		if pluginScriptTmp != "" {
-			defer os.Remove(pluginScriptTmp)
 		}
 
 		if opts.Provider == "" && prof.Provider != "" {
@@ -191,7 +188,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 
 	if opts.Interactive {
 		fmt.Fprintf(os.Stderr, "[airun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
-		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Browser: opts.Browser}, provider, model, extraVolumes)
+		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Browser: opts.Browser}, provider, model, extraVolumes, extraEnv)
 	}
 
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
@@ -220,18 +217,18 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		if opts.Output != "" {
 			namePrefix = "airun-export"
 		}
-		return runContainerCreate(cfg, subOpts, provider, model, extraVolumes, snapshotIn, opts.Output, namePrefix)
+		return runContainerCreate(cfg, subOpts, provider, model, extraVolumes, extraEnv, snapshotIn, opts.Output, namePrefix)
 	}
 
-	return runDocker(cfg, subOpts, provider, model, extraVolumes)
+	return runDocker(cfg, subOpts, provider, model, extraVolumes, extraEnv)
 }
 
 // runDocker handles the simple `docker run --rm` path: interactive shells and
 // non-interactive bind-mode runs with no workspace export. Flows that require
 // `docker cp` — snapshot input or workspace export — go through
 // runContainerCreate instead.
-func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
+func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes, extraEnv []string) error {
+	envPath, err := envfile.Write(append(cfg.ContainerEnvWithModel(provider, model), extraEnv...))
 	if err != nil {
 		return err
 	}
@@ -296,14 +293,14 @@ func runContainerCreate(
 	cfg *config.Config,
 	opts RunOpts,
 	provider, model string,
-	extraVolumes []string,
+	extraVolumes, extraEnv []string,
 	copyIn bool,
 	copyOut string,
 	namePrefix string,
 ) error {
 	containerName := fmt.Sprintf("%s-%d", namePrefix, time.Now().Unix())
 
-	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
+	envPath, err := envfile.Write(append(cfg.ContainerEnvWithModel(provider, model), extraEnv...))
 	if err != nil {
 		return err
 	}
@@ -364,18 +361,54 @@ func runContainerCreate(
 	return runErr
 }
 
-// profileMounts generates Docker volume mount args from a profile's skills, plugins, and settings.
-func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, pluginScriptPath string, err error) {
-	if len(p.Plugins) > 0 {
-		scriptPath, scriptErr := generatePluginScript(p.Plugins)
-		if scriptErr != nil {
-			return nil, "", "", fmt.Errorf("generate plugin script: %w", scriptErr)
+// basePlugins are installed at image build time by seed-plugins.sh and
+// activated into installed_plugins.json by the container entrypoint. They
+// don't need a runtime install, so the runner filters them out of any
+// profile-declared plugin list before passing the remainder to the
+// container as AIRUN_PLUGINS.
+var basePlugins = map[string]bool{
+	"superpowers":   true,
+	"context7":      true,
+	"skill-creator": true,
+}
+
+// filterBasePlugins returns a profile's plugin list with build-time base
+// plugins removed. The base set is pre-installed in the image; listing them
+// in a profile is harmless but passing them to `claude plugin install` would
+// be a pointless no-op at container startup.
+//
+// A plugin entry is "name" or "name@marketplace"; the plugin's identity for
+// filtering purposes is the "name" segment.
+func filterBasePlugins(plugins []string) []string {
+	out := make([]string, 0, len(plugins))
+	for _, p := range plugins {
+		name := p
+		if at := strings.IndexByte(p, '@'); at >= 0 {
+			name = p[:at]
 		}
-		if scriptPath != "" {
-			pluginScriptPath = scriptPath
-			volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.airun/post-init.sh:ro", scriptPath))
-			fmt.Fprintf(os.Stderr, "[airun] plugins: %s (via post-init)\n", strings.Join(p.Plugins, ", "))
+		if basePlugins[name] {
+			continue
 		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// profileMounts converts a profile into container mounts and extra env vars.
+//
+// Volumes cover skill directories and (when the profile declares a non-empty
+// settings block) a one-shot settings.json mounted at /home/claude/.claude/.
+// Extra env vars currently cover only AIRUN_PLUGINS — profile-declared plugins
+// beyond the base set are joined into a single comma-separated env var that
+// the entrypoint parses and feeds to `claude plugin install` at container
+// startup.
+//
+// The caller is responsible for removing settingsPath after the container
+// exits.
+func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, env []string, err error) {
+	if extras := filterBasePlugins(p.Plugins); len(extras) > 0 {
+		env = append(env, "AIRUN_PLUGINS="+strings.Join(extras, ","))
+		fmt.Fprintf(os.Stderr, "[airun] extra plugins: %s\n", strings.Join(extras, ", "))
 	}
 
 	for _, skillPath := range p.SkillPaths() {
@@ -384,60 +417,23 @@ func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, p
 	}
 
 	if len(p.Settings) > 0 {
-		settingsJSON, err := json.Marshal(p.Settings)
-		if err != nil {
-			return nil, "", pluginScriptPath, fmt.Errorf("marshal settings: %w", err)
+		settingsJSON, mErr := json.Marshal(p.Settings)
+		if mErr != nil {
+			return nil, "", env, fmt.Errorf("marshal settings: %w", mErr)
 		}
-		f, err := os.CreateTemp(os.TempDir(), ".airun-settings-*.json")
-		if err != nil {
-			return nil, "", pluginScriptPath, fmt.Errorf("create settings temp file: %w", err)
+		f, cErr := os.CreateTemp(os.TempDir(), ".airun-settings-*.json")
+		if cErr != nil {
+			return nil, "", env, fmt.Errorf("create settings temp file: %w", cErr)
 		}
-		if _, err := f.Write(settingsJSON); err != nil {
+		if _, wErr := f.Write(settingsJSON); wErr != nil {
 			f.Close()
 			os.Remove(f.Name())
-			return nil, "", pluginScriptPath, fmt.Errorf("write settings: %w", err)
+			return nil, "", env, fmt.Errorf("write settings: %w", wErr)
 		}
 		f.Close()
 		settingsPath = f.Name()
 		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json:ro", settingsPath))
 	}
 
-	return volumes, settingsPath, pluginScriptPath, nil
-}
-
-// generatePluginScript creates a temporary shell script that installs Claude Code
-// plugins listed in a profile. The script is mounted as post-init.sh and executed
-// by the container entrypoint.
-func generatePluginScript(plugins []string) (string, error) {
-	var lines []string
-	lines = append(lines, "#!/bin/bash")
-	lines = append(lines, "# Auto-generated by airun profile — installs plugins via claude CLI")
-	for _, plugin := range plugins {
-		// Plugin format: "name@marketplace" or just "name"
-		parts := strings.SplitN(plugin, "@", 2)
-		name := parts[0]
-		if len(parts) == 2 {
-			marketplace := parts[1]
-			lines = append(lines, fmt.Sprintf("claude plugin install %s --marketplace %s 2>/dev/null || true", name, marketplace))
-		} else {
-			lines = append(lines, fmt.Sprintf("claude plugin install %s 2>/dev/null || true", name))
-		}
-	}
-
-	f, err := os.CreateTemp(os.TempDir(), ".airun-plugins-*.sh")
-	if err != nil {
-		return "", err
-	}
-	content := strings.Join(lines, "\n") + "\n"
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	f.Close()
-	if err := os.Chmod(f.Name(), 0755); err != nil {
-		os.Remove(f.Name())
-		return "", fmt.Errorf("chmod plugin script: %w", err)
-	}
-	return f.Name(), nil
+	return volumes, settingsPath, env, nil
 }

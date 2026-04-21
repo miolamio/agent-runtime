@@ -142,6 +142,9 @@ case "${1:-}" in
         #     it to $DOCKER_SHIM_CAPTURE/<basename of DST>. airun generates
         #     short-lived temp files (plugin scripts, settings.json) that it
         #     deletes on return, so tests have no other way to inspect them.
+        #
+        # Also snapshot `--env-file <path>` content to env-file.env — airun
+        # deletes the env file on defer so tests can't read it post-run.
         vols="${DOCKER_SHIM_LOG%.log}.volumes"
         touch "$vols"
         prev=""
@@ -159,6 +162,11 @@ case "${1:-}" in
                     if [[ -f "$src" && -n "${DOCKER_SHIM_CAPTURE:-}" ]]; then
                         cp "$src" "${DOCKER_SHIM_CAPTURE}/$(basename "$dst")" 2>/dev/null || true
                     fi
+                fi
+            fi
+            if [[ "$prev" == "--env-file" ]]; then
+                if [[ -f "$arg" && -n "${DOCKER_SHIM_CAPTURE:-}" ]]; then
+                    cp "$arg" "${DOCKER_SHIM_CAPTURE}/env-file.env" 2>/dev/null || true
                 fi
             fi
             prev="$arg"

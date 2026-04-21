@@ -207,3 +207,45 @@ func TestParseAgentSpec(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterBasePlugins(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{
+			name: "nil in, nil-ish out",
+			in:   nil,
+			want: []string{},
+		},
+		{
+			name: "all base plugins get dropped",
+			in:   []string{"superpowers", "context7", "skill-creator"},
+			want: []string{},
+		},
+		{
+			name: "non-base plugins survive unchanged",
+			in:   []string{"playwright-cli@miolamio-agent-skills", "frontend-design@market1"},
+			want: []string{"playwright-cli@miolamio-agent-skills", "frontend-design@market1"},
+		},
+		{
+			name: "mixed: keep extras, drop base even with @marketplace",
+			in:   []string{"superpowers@anything", "context7", "notebook@mio", "skill-creator"},
+			want: []string{"notebook@mio"},
+		},
+		{
+			name: "marketplace in name must not confuse split",
+			in:   []string{"superpowers@claude-plugins-official", "security-guidance@claude-plugins-official"},
+			want: []string{"security-guidance@claude-plugins-official"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterBasePlugins(tt.in)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("filterBasePlugins(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}

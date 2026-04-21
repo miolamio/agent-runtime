@@ -114,9 +114,25 @@ IPEOF
     echo "[airun] plugins: context7, skill-creator, superpowers seeded" >&2
 fi
 
-# ── Post-init script (for profile-specific setup) ──
-if [ -x "${_HOME}/.airun/post-init.sh" ]; then
-    gosu "$_USER" "${_HOME}/.airun/post-init.sh" || true
+# ── Profile-specific plugins (comma-separated name[@marketplace] list) ──
+# Base plugins (context7, skill-creator, superpowers) are already seeded above;
+# everything else declared by the profile goes through `claude plugin install`
+# at container startup. Failures are non-fatal: we tolerate transient marketplace
+# issues rather than block the entire run.
+if [ -n "${AIRUN_PLUGINS:-}" ]; then
+    echo "[airun] profile plugins: ${AIRUN_PLUGINS}" >&2
+    IFS=',' read -ra _plugins <<< "${AIRUN_PLUGINS}"
+    for _plugin in "${_plugins[@]}"; do
+        _name="${_plugin%@*}"
+        _market="${_plugin#*@}"
+        if [ "${_name}" = "${_plugin}" ]; then
+            gosu "$_USER" claude plugin install "${_name}" 2>/dev/null || \
+                echo "[airun] warning: plugin install failed: ${_name}" >&2
+        else
+            gosu "$_USER" claude plugin install "${_name}" --marketplace "${_market}" 2>/dev/null || \
+                echo "[airun] warning: plugin install failed: ${_name}@${_market}" >&2
+        fi
+    done
 fi
 
 # ── Skip Claude Code login / onboarding prompt ──
