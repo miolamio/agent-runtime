@@ -26,6 +26,7 @@ ONLY=""
 WITH_NETWORK=0
 INCLUDE_NON_GLM=0
 FAST=0
+NO_BUILD=0
 while (( $# > 0 )); do
     case "$1" in
         --group) GROUP="$2"; shift 2 ;;
@@ -33,6 +34,7 @@ while (( $# > 0 )); do
         --with-network) WITH_NETWORK=1; shift ;;
         --include-non-glm) INCLUDE_NON_GLM=1; shift ;;
         --fast) FAST=1; shift ;;
+        --no-build) NO_BUILD=1; shift ;;
         -h|--help)
             sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed -n '/^# /p' | sed 's/^# //'
             exit 0
@@ -43,6 +45,17 @@ done
 
 export E2E_WITH_NETWORK="$WITH_NETWORK"
 export E2E_INCLUDE_NON_GLM="$INCLUDE_NON_GLM"
+
+# Ensure bin/airun is current with the source. `go build` is cached, so this
+# is essentially free when the tree is unchanged. Opt out with --no-build.
+if (( NO_BUILD == 0 )); then
+    REPO_ROOT=$(cd "${ROOT}/../.." && pwd)
+    echo "# building airun from ${REPO_ROOT}" >&2
+    ( cd "$REPO_ROOT" && go build -o bin/airun ./cmd/airun/ ) || {
+        echo "build failed — aborting" >&2
+        exit 2
+    }
+fi
 
 mkdir -p "$LOG_DIR"
 : > "${LOG_DIR}/summary.tap"
