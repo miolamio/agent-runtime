@@ -38,16 +38,18 @@ EOF
     echo "$th"
 }
 
-# mk_test_profile <home> <profile_name>: write a minimal profile yaml into
-# $home/.airun/profiles/$name.yaml. Use a unique name per test to avoid
-# collisions on the shared docker volume namespace.
+# mk_test_profile <home> <profile_name> [extra_yaml]: write a profile yaml
+# into $home/.airun/profiles/$name.yaml. extra_yaml (optional) is appended
+# to the base — use this to add skills/plugins/settings/provider blocks.
 mk_test_profile() {
-    local home="$1" name="$2"
+    local home="$1" name="$2" extra="${3:-}"
     cat > "$home/.airun/profiles/${name}.yaml" <<EOF
 name: ${name}
 description: e2e test profile
-provider: zai
 EOF
+    if [[ -n "$extra" ]]; then
+        printf '%s\n' "$extra" >> "$home/.airun/profiles/${name}.yaml"
+    fi
 }
 
 # unique_test_tag: emits a short token suitable for profile and container
@@ -73,9 +75,10 @@ unique_test_tag() {
 #   grep -F 'run --rm' "$DOCKER_SHIM_LOG"
 install_docker_shim() {
     local home="$1"
-    mkdir -p "$home/bin"
+    mkdir -p "$home/bin" "$home/captured_mounts"
     DOCKER_SHIM_LOG="$home/docker.log"
-    export DOCKER_SHIM_LOG
+    DOCKER_SHIM_CAPTURE="$home/captured_mounts"
+    export DOCKER_SHIM_LOG DOCKER_SHIM_CAPTURE
     : > "$DOCKER_SHIM_LOG"
 
     cat > "$home/bin/docker" <<'SHIM'
@@ -132,19 +135,29 @@ case "${1:-}" in
         esac
         ;;
     run|create)
-        # Record any "-v NAME:/path" flag as a created volume so subsequent
-        # `docker volume inspect` calls see it.
+        # For each "-v SRC:DST[:ro]" flag:
+        #   - Named volume (no leading '/'): remember it so subsequent
+        #     `docker volume inspect` calls find it.
+        #   - Host bind mount: if SRC is a file that exists RIGHT NOW, copy
+        #     it to $DOCKER_SHIM_CAPTURE/<basename of DST>. airun generates
+        #     short-lived temp files (plugin scripts, settings.json) that it
+        #     deletes on return, so tests have no other way to inspect them.
         vols="${DOCKER_SHIM_LOG%.log}.volumes"
         touch "$vols"
         prev=""
         for arg in "$@"; do
             if [[ "$prev" == "-v" ]]; then
-                # Mount spec is "name:path[:ro]"; volume name is before first colon.
-                # Skip absolute-path binds (start with /).
                 if [[ "${arg:0:1}" != "/" ]]; then
                     vol="${arg%%:*}"
                     if ! grep -Fxq "$vol" "$vols" 2>/dev/null; then
                         echo "$vol" >> "$vols"
+                    fi
+                else
+                    src="${arg%%:*}"
+                    rest="${arg#*:}"
+                    dst="${rest%%:*}"
+                    if [[ -f "$src" && -n "${DOCKER_SHIM_CAPTURE:-}" ]]; then
+                        cp "$src" "${DOCKER_SHIM_CAPTURE}/$(basename "$dst")" 2>/dev/null || true
                     fi
                 fi
             fi
