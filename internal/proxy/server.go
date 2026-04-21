@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -208,7 +210,7 @@ func DefaultPaths() (configPath, studentsPath string) {
 	oldConfig := filepath.Join(home, "proxy.yaml")
 	oldStudents := filepath.Join(home, "students.json")
 
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if _, err := os.Stat(configPath); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(oldConfig); err == nil {
 			os.MkdirAll(baseDir, 0700)
 			if os.Rename(oldConfig, configPath) == nil {
@@ -216,7 +218,7 @@ func DefaultPaths() (configPath, studentsPath string) {
 			}
 		}
 	}
-	if _, err := os.Stat(studentsPath); os.IsNotExist(err) {
+	if _, err := os.Stat(studentsPath); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(oldStudents); err == nil {
 			os.MkdirAll(baseDir, 0700)
 			if os.Rename(oldStudents, studentsPath) == nil {

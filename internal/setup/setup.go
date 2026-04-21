@@ -2,7 +2,9 @@ package setup
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +38,7 @@ func Run() error {
 
 	if configureKeys {
 		// Write base config if file doesn't exist
-		if _, err := os.Stat(envFile); os.IsNotExist(err) {
+		if _, err := os.Stat(envFile); errors.Is(err, fs.ErrNotExist) {
 			content := fmt.Sprintf(`# Agent Runtime — Central Configuration
 ARUN_WORKSPACE=%s
 ARUN_MODE=snapshot
@@ -135,7 +137,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	fmt.Println()
 	fmt.Println("  Copying profile templates...")
 	srcProfiles := "configs/profiles"
-	if _, err := os.Stat(srcProfiles); os.IsNotExist(err) {
+	if _, err := os.Stat(srcProfiles); errors.Is(err, fs.ErrNotExist) {
 		if exe, err := os.Executable(); err == nil {
 			candidate := filepath.Join(filepath.Dir(exe), "..", "configs", "profiles")
 			if _, err := os.Stat(candidate); err == nil {

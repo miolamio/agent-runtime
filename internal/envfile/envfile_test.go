@@ -1,6 +1,8 @@
 package envfile
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -36,7 +38,7 @@ func TestWrite_Content(t *testing.T) {
 func TestCleanup_ValidPrefix(t *testing.T) {
 	path, _ := Write([]string{"X=1"})
 	Cleanup(path)
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Error("file still exists after Cleanup")
 	}
 }
@@ -46,7 +48,7 @@ func TestCleanup_WrongPrefix(t *testing.T) {
 	f.Close()
 	defer os.Remove(f.Name())
 	Cleanup(f.Name())
-	if _, err := os.Stat(f.Name()); os.IsNotExist(err) {
+	if _, err := os.Stat(f.Name()); errors.Is(err, fs.ErrNotExist) {
 		t.Error("Cleanup deleted file without .airun- prefix")
 	}
 }
