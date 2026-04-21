@@ -192,13 +192,40 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	// Fix 2: log actual mount, not config.Workspace
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
-	if opts.Output != "" {
-		return runDockerWithExport(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Output: opts.Output, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops, Browser: opts.Browser}, provider, model, extraVolumes)
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "bind"
+	}
+	snapshotIn := mode == "snapshot"
+
+	subOpts := RunOpts{
+		Prompt:   opts.Prompt,
+		Mount:    mount,
+		Output:   opts.Output,
+		Profile:  opts.Profile,
+		NoState:  opts.NoState,
+		Loop:     opts.Loop,
+		MaxLoops: opts.MaxLoops,
+		Browser:  opts.Browser,
 	}
 
-	return runDocker(cfg, RunOpts{Prompt: opts.Prompt, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Loop: opts.Loop, MaxLoops: opts.MaxLoops, Browser: opts.Browser}, provider, model, extraVolumes)
+	// Any flow that needs docker cp (snapshot workspace in, or export workspace out)
+	// goes through the create/start/rm lifecycle; simple bind+no-export uses docker run --rm.
+	if snapshotIn || opts.Output != "" {
+		namePrefix := "airun-snap"
+		if opts.Output != "" {
+			namePrefix = "airun-export"
+		}
+		return runContainerCreate(cfg, subOpts, provider, model, extraVolumes, snapshotIn, opts.Output, namePrefix)
+	}
+
+	return runDocker(cfg, subOpts, provider, model, extraVolumes)
 }
 
+// runDocker handles the simple `docker run --rm` path: interactive shells and
+// non-interactive bind-mode runs with no workspace export. Flows that require
+// `docker cp` — snapshot input or workspace export — go through
+// runContainerCreate instead.
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
 	imageName := "agent-runtime:latest"
 
@@ -207,15 +234,6 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 		return err
 	}
 	defer envfile.Cleanup(envPath)
-
-	mode := cfg.Mode
-	if mode == "" {
-		mode = "bind"
-	}
-
-	if mode == "snapshot" && !opts.Interactive {
-		return runDockerSnapshot(cfg, opts, provider, model, envPath, extraVolumes, imageName)
-	}
 
 	var args []string
 	if opts.Interactive {
@@ -268,55 +286,21 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	return err
 }
 
-func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPath string, extraVolumes []string, imageName string) error {
-	containerName := fmt.Sprintf("airun-snap-%d", time.Now().Unix())
-
-	// No -v for workspace — we'll docker cp instead
-	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
-	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
-	createArgs = append(createArgs, imageName)
-	createArgs = appendClaudeCmd(createArgs, opts)
-
-	fmt.Fprintf(os.Stderr, "[airun] snapshot mode: creating container %s\n", containerName)
-	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
-		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
-	}
-
-	// Copy workspace into container
-	if opts.Mount != "" {
-		fmt.Fprintf(os.Stderr, "[airun] copying %s → container:/workspace\n", opts.Mount)
-		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
-		if out, err := cpCmd.CombinedOutput(); err != nil {
-			cleanupContainer(containerName)
-			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
-		}
-	}
-
-	// Start and capture output
-	var outputBuf bytes.Buffer
-	start := time.Now()
-
-	startCmd := exec.Command("docker", "start", "-a", containerName)
-	startCmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
-	startCmd.Stderr = os.Stderr
-	runErr := startCmd.Run()
-
-	exitCode := 0
-	if runErr != nil {
-		exitCode = 1
-	}
-
-	cleanupContainer(containerName)
-
-	// Save history
-	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
-
-	return runErr
-}
-
-func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
+// runContainerCreate handles the `docker create → [cp in] → start → [cp out]
+// → rm` lifecycle used whenever a run needs to stage workspace files via
+// docker cp. copyIn=true stages opts.Mount into the container; copyOut (when
+// non-empty) exports /workspace to that host path after the run finishes.
+func runContainerCreate(
+	cfg *config.Config,
+	opts RunOpts,
+	provider, model string,
+	extraVolumes []string,
+	copyIn bool,
+	copyOut string,
+	namePrefix string,
+) error {
 	imageName := "agent-runtime:latest"
-	containerName := fmt.Sprintf("airun-export-%d", time.Now().Unix())
+	containerName := fmt.Sprintf("%s-%d", namePrefix, time.Now().Unix())
 
 	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
 	if err != nil {
@@ -324,29 +308,26 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	}
 	defer envfile.Cleanup(envPath)
 
-	mode := cfg.Mode
-	if mode == "" {
-		mode = "bind"
-	}
-
 	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
-	if opts.Mount != "" && mode != "snapshot" {
+	if !copyIn && opts.Mount != "" {
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
 	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
 	createArgs = append(createArgs, imageName)
 	createArgs = appendClaudeCmd(createArgs, opts)
 
-	fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
+	if copyIn {
+		fmt.Fprintf(os.Stderr, "[airun] snapshot mode: creating container %s\n", containerName)
+	} else {
+		fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
+	}
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
 		return fmt.Errorf("docker create failed: %s: %w", string(out), err)
 	}
 
-	// Snapshot mode: copy workspace into container instead of bind mount
-	if opts.Mount != "" && mode == "snapshot" {
-		fmt.Fprintf(os.Stderr, "[airun] snapshot mode: copying %s → container:/workspace\n", opts.Mount)
-		cpCmd := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace")
-		if out, err := cpCmd.CombinedOutput(); err != nil {
+	if copyIn && opts.Mount != "" {
+		fmt.Fprintf(os.Stderr, "[airun] copying %s → container:/workspace\n", opts.Mount)
+		if out, err := exec.Command("docker", "cp", opts.Mount+"/.", containerName+":/workspace").CombinedOutput(); err != nil {
 			cleanupContainer(containerName)
 			return fmt.Errorf("docker cp failed: %s: %w", string(out), err)
 		}
@@ -365,18 +346,18 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 		exitCode = 1
 	}
 
-	if err := os.MkdirAll(opts.Output, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "[airun] warning: cannot create output dir %s: %v\n", opts.Output, err)
-	}
-	cpCmd := exec.Command("docker", "cp", containerName+":/workspace/.", opts.Output)
-	if cpOut, err := cpCmd.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "[airun] warning: docker cp failed: %s\n", string(cpOut))
-	} else {
-		fmt.Fprintf(os.Stderr, "[airun] exported workspace to %s\n", opts.Output)
+	if copyOut != "" {
+		if err := os.MkdirAll(copyOut, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "[airun] warning: cannot create output dir %s: %v\n", copyOut, err)
+		}
+		if cpOut, err := exec.Command("docker", "cp", containerName+":/workspace/.", copyOut).CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "[airun] warning: docker cp failed: %s\n", string(cpOut))
+		} else {
+			fmt.Fprintf(os.Stderr, "[airun] exported workspace to %s\n", copyOut)
+		}
 	}
 
 	cleanupContainer(containerName)
-
 	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
 
 	return runErr
