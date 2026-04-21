@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -409,11 +408,6 @@ func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, e
 	if extras := filterBasePlugins(p.Plugins); len(extras) > 0 {
 		env = append(env, "AIRUN_PLUGINS="+strings.Join(extras, ","))
 		fmt.Fprintf(os.Stderr, "[airun] extra plugins: %s\n", strings.Join(extras, ", "))
-	}
-
-	for _, skillPath := range p.SkillPaths() {
-		skillName := filepath.Base(skillPath)
-		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/skills/%s:ro", skillPath, skillName))
 	}
 
 	if len(p.Settings) > 0 {

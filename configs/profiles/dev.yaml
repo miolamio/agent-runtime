@@ -1,14 +1,11 @@
 name: dev
-description: Full-stack development with TDD, security, and browser testing
+description: Full-stack development with security scanning, browser testing, and frontend tooling
 provider: z
-skills:
-  - claude-code-best-practices
-  - webapp-testing
 plugins:
-  - superpowers@superpowers-marketplace
-  - context7@claude-plugins-official
   - security-guidance@claude-plugins-official
-  - playwright-cli@miolamio-agent-skills
+  - playwright@claude-plugins-official
+  - frontend-design@claude-plugins-official
+  - example-skills@anthropic-agent-skills  # webapp-testing, doc-coauthoring, mcp-builder, …
 settings:
   effortLevel: high
   alwaysThinkingEnabled: true

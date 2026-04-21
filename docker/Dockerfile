@@ -84,7 +84,7 @@ RUN playwright-cli install-browser chromium
 USER root
 
 # ── Plugins & Skills Marketplace ──
-ARG PLUGINS_BUST_CACHE=1
+ARG PLUGINS_BUST_CACHE=2
 COPY seed-plugins.sh /tmp/seed-plugins.sh
 RUN chmod +x /tmp/seed-plugins.sh \
     && echo "plugins-cache-bust: ${PLUGINS_BUST_CACHE}" \

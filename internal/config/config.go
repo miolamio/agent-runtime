@@ -12,7 +12,6 @@ type Config struct {
 	// Paths
 	Home      string
 	EnvFile   string
-	SkillsDir string
 	AgentsDir string
 
 	// From config.env
@@ -67,7 +66,6 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Home:      home,
 		EnvFile:   envFile,
-		SkillsDir: filepath.Join(baseDir, "skills"),
 		AgentsDir: filepath.Join(baseDir, "agents"),
 		// Defaults
 		Workspace:      filepath.Join(home, "src"),
@@ -86,8 +84,7 @@ func Load() (*Config, error) {
 		DisableTraffic: "1",
 	}
 
-	// Migration: move old dirs to new locations
-	migrateDir(filepath.Join(home, "airun-skills"), cfg.SkillsDir)
+	// Migration: move old agents dir to new location
 	migrateDir(filepath.Join(home, "airun-agents"), cfg.AgentsDir)
 
 	if err := cfg.loadEnvFile(envFile); err != nil {

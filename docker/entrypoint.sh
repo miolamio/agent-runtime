@@ -70,6 +70,11 @@ if [ -f "$SEED_META" ] && [ ! -f "$PLUGINS_DIR/installed_plugins.json" ]; then
     "source": { "source": "github", "repo": "miolamio/agent-skills" },
     "installLocation": "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills",
     "lastUpdated": "${SEEDED_AT}"
+  },
+  "anthropic-agent-skills": {
+    "source": { "source": "github", "repo": "anthropics/skills" },
+    "installLocation": "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills",
+    "lastUpdated": "${SEEDED_AT}"
   }
 }
 KMEOF

@@ -1,12 +1,10 @@
 name: text
-description: Russian text editing and translation
+description: Russian text editing and English→Russian translation
 provider: mm
-skills:
-  - ru-editor
-  - en-ru-translator-adv
-  - krrkt
-plugins:
-  - ru-editor@miolamio-agent-skills
-  - en-ru-translator-adv@miolamio-agent-skills
+# ru-editor, en-ru-translator-adv, and krrkt are baked into the image by
+# seed-plugins.sh (copied from miolamio/agent-skills), so no runtime install
+# is needed. Add more via the marketplace if you need ru-textovod or
+# ascii-art-beautifier.
+plugins: []
 settings:
   effortLevel: high

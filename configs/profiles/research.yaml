@@ -1,14 +1,10 @@
 name: research
-description: Deep research with web browsing, NotebookLM, and diagrams
+description: Deep research with browser automation, document bundles, and diagramming
 provider: z
-skills:
-  - excalidraw-diagram
-  - doc-coauthoring
 plugins:
-  - superpowers@superpowers-marketplace
-  - context7@claude-plugins-official
-  - notebooklm-mcp@miolamio-agent-skills
-  - playwright-cli@miolamio-agent-skills
+  - playwright@claude-plugins-official
+  - example-skills@anthropic-agent-skills  # doc-coauthoring, canvas-design, frontend-design, …
+  - document-skills@anthropic-agent-skills  # xlsx, docx, pptx, pdf
 settings:
   effortLevel: high
   alwaysThinkingEnabled: true

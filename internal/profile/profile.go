@@ -12,9 +12,14 @@ type Profile struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Provider    string         `yaml:"provider"`
-	Skills      []string       `yaml:"skills"`
 	Plugins     []string       `yaml:"plugins"`
 	Settings    map[string]any `yaml:"settings"`
+}
+
+// legacyProfile captures deprecated fields so we can emit a one-shot warning
+// without silently ignoring them.
+type legacyProfile struct {
+	Skills []string `yaml:"skills"`
 }
 
 func Load(name string) (*Profile, error) {
@@ -32,6 +37,13 @@ func Load(name string) (*Profile, error) {
 	var p Profile
 	if err := yaml.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("invalid profile %q: %w", name, err)
+	}
+
+	var legacy legacyProfile
+	if err := yaml.Unmarshal(data, &legacy); err == nil && len(legacy.Skills) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"[airun] warning: profile %q uses deprecated 'skills' field (ignored since v0.7.0); "+
+				"declare marketplace plugins under 'plugins' instead\n", name)
 	}
 
 	if p.Name == "" {
@@ -62,19 +74,3 @@ func List() ([]string, error) {
 	return names, nil
 }
 
-// SkillPaths returns host paths for listed skills.
-func (p *Profile) SkillPaths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	base := filepath.Join(home, ".airun", "skills")
-	var paths []string
-	for _, s := range p.Skills {
-		path := filepath.Join(base, s)
-		if _, err := os.Stat(path); err == nil {
-			paths = append(paths, path)
-		}
-	}
-	return paths
-}
