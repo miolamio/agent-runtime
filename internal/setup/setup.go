@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -12,8 +11,10 @@ import (
 )
 
 func Run() error {
-	usr, _ := user.Current()
-	home := usr.HomeDir
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot resolve home directory: %w", err)
+	}
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("Agent Runtime — Setup")

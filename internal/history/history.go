@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -23,8 +22,12 @@ type RunRecord struct {
 }
 
 func runsDir() string {
-	usr, _ := user.Current()
-	return filepath.Join(usr.HomeDir, ".airun", "runs")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[airun] warning: cannot resolve home dir for run history: %v\n", err)
+		return ""
+	}
+	return filepath.Join(home, ".airun", "runs")
 }
 
 func Save(rec RunRecord, output string) error {

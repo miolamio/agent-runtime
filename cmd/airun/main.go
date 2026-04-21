@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -92,14 +91,15 @@ func main() {
 		// Find docker/ directory with our Dockerfile
 		dockerDir := "docker"
 		if _, err := os.Stat(filepath.Join(dockerDir, "Dockerfile")); err != nil {
-			usr, _ := user.Current()
-			for _, dir := range []string{
-				filepath.Join(usr.HomeDir, "src", "agent-runtime", "docker"),
-				filepath.Join(usr.HomeDir, "agent-runtime", "docker"),
-			} {
-				if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
-					dockerDir = dir
-					break
+			if home, herr := os.UserHomeDir(); herr == nil {
+				for _, dir := range []string{
+					filepath.Join(home, "src", "agent-runtime", "docker"),
+					filepath.Join(home, "agent-runtime", "docker"),
+				} {
+					if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+						dockerDir = dir
+						break
+					}
 				}
 			}
 		}
