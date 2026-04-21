@@ -20,7 +20,7 @@ import (
 	"github.com/miolamio/agent-runtime/internal/setup"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -456,6 +456,6 @@ Flags:
 
 Config: ~/.airun/config.env (workspace, API keys, provider, mode)
 Profiles: ~/.airun/profiles/*.yaml
-Providers: z/zai (Z.AI GLM-4.7) | m/mm/minimax (MiniMax M2.7) | k/kimi (Kimi K2.5) | r/remote (Proxy)
+Providers: z/zai (Z.AI GLM-5.1) | m/mm/minimax (MiniMax M2.7) | k/kimi (Kimi K2.5) | r/remote (Proxy)
 `)
 }
