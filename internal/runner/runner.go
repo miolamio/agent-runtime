@@ -54,6 +54,17 @@ func cleanupContainer(name string) {
 	}
 }
 
+// appendClaudeCmd appends the `claude -p <prompt> --dangerously-skip-permissions`
+// invocation (with an optional --max-turns for loop mode) used in every
+// non-interactive run.
+func appendClaudeCmd(args []string, opts RunOpts) []string {
+	args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
+	if opts.Loop && opts.MaxLoops > 0 {
+		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
+	}
+	return args
+}
+
 func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
@@ -197,10 +208,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 
 	// Claude Code command (non-interactive only)
 	if !opts.Interactive {
-		args = append(args, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
-		if opts.Loop && opts.MaxLoops > 0 {
-			args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
-		}
+		args = appendClaudeCmd(args, opts)
 	}
 
 	fmt.Fprintf(os.Stderr, "[airun] docker %s --env-file %s %s\n",
@@ -275,10 +283,8 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 		}
 	}
 
-	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
-	if opts.Loop && opts.MaxLoops > 0 {
-		createArgs = append(createArgs, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
-	}
+	createArgs = append(createArgs, imageName)
+	createArgs = appendClaudeCmd(createArgs, opts)
 
 	fmt.Fprintf(os.Stderr, "[airun] snapshot mode: creating container %s\n", containerName)
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
@@ -368,10 +374,8 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 			createArgs = append(createArgs, "-p", "9222:9222")
 		}
 	}
-	createArgs = append(createArgs, imageName, "claude", "-p", opts.Prompt, "--dangerously-skip-permissions")
-	if opts.Loop && opts.MaxLoops > 0 {
-		createArgs = append(createArgs, "--max-turns", fmt.Sprintf("%d", opts.MaxLoops))
-	}
+	createArgs = append(createArgs, imageName)
+	createArgs = appendClaudeCmd(createArgs, opts)
 
 	fmt.Fprintf(os.Stderr, "[airun] docker create --name %s --env-file %s\n", containerName, envfile.MaskLog(envPath))
 	if out, err := exec.Command("docker", createArgs...).CombinedOutput(); err != nil {
