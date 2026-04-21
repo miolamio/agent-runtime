@@ -65,6 +65,32 @@ func appendClaudeCmd(args []string, opts RunOpts) []string {
 	return args
 }
 
+// appendStateAndExtras appends the per-profile state volume, profile-provided
+// extra volumes, optional agents dir mount, and browser env/port args to a
+// docker `run`/`create` argv. The workspace mount is intentionally left to
+// callers because bind and snapshot flows differ on that point.
+func appendStateAndExtras(args []string, cfg *config.Config, opts RunOpts, extraVolumes []string) []string {
+	if !opts.NoState {
+		args = append(args, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
+	}
+	for _, v := range extraVolumes {
+		args = append(args, "-v", v)
+	}
+	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
+		args = append(args, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+	}
+	if opts.Browser != "" {
+		args = append(args, "-e", "AIRUN_BROWSER="+opts.Browser)
+		if opts.Browser == "vnc" || opts.Browser == "both" {
+			args = append(args, "-p", "6080:6080")
+		}
+		if opts.Browser == "cdp" || opts.Browser == "both" {
+			args = append(args, "-p", "9222:9222")
+		}
+	}
+	return args
+}
+
 func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
@@ -182,27 +208,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	if opts.Mount != "" {
 		args = append(args, "-v", opts.Mount+":/workspace")
 	}
-	if !opts.NoState {
-		args = append(args, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
-	}
-
-	for _, v := range extraVolumes {
-		args = append(args, "-v", v)
-	}
-
-	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
-		args = append(args, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
-	}
-
-	if opts.Browser != "" {
-		args = append(args, "-e", "AIRUN_BROWSER="+opts.Browser)
-		if opts.Browser == "vnc" || opts.Browser == "both" {
-			args = append(args, "-p", "6080:6080")
-		}
-		if opts.Browser == "cdp" || opts.Browser == "both" {
-			args = append(args, "-p", "9222:9222")
-		}
-	}
+	args = appendStateAndExtras(args, cfg, opts, extraVolumes)
 
 	args = append(args, imageName)
 
@@ -259,30 +265,9 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPath string, extraVolumes []string, imageName string) error {
 	containerName := fmt.Sprintf("airun-snap-%d", time.Now().Unix())
 
-	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
-
 	// No -v for workspace — we'll docker cp instead
-	if !opts.NoState {
-		createArgs = append(createArgs, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
-	}
-	for _, v := range extraVolumes {
-		createArgs = append(createArgs, "-v", v)
-	}
-
-	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
-		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
-	}
-
-	if opts.Browser != "" {
-		createArgs = append(createArgs, "-e", "AIRUN_BROWSER="+opts.Browser)
-		if opts.Browser == "vnc" || opts.Browser == "both" {
-			createArgs = append(createArgs, "-p", "6080:6080")
-		}
-		if opts.Browser == "cdp" || opts.Browser == "both" {
-			createArgs = append(createArgs, "-p", "9222:9222")
-		}
-	}
-
+	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
+	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
 	createArgs = append(createArgs, imageName)
 	createArgs = appendClaudeCmd(createArgs, opts)
 
@@ -356,24 +341,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 	if opts.Mount != "" && mode != "snapshot" {
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
-	if !opts.NoState {
-		createArgs = append(createArgs, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
-	}
-	for _, v := range extraVolumes {
-		createArgs = append(createArgs, "-v", v)
-	}
-	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
-		createArgs = append(createArgs, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
-	}
-	if opts.Browser != "" {
-		createArgs = append(createArgs, "-e", "AIRUN_BROWSER="+opts.Browser)
-		if opts.Browser == "vnc" || opts.Browser == "both" {
-			createArgs = append(createArgs, "-p", "6080:6080")
-		}
-		if opts.Browser == "cdp" || opts.Browser == "both" {
-			createArgs = append(createArgs, "-p", "9222:9222")
-		}
-	}
+	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
 	createArgs = append(createArgs, imageName)
 	createArgs = appendClaudeCmd(createArgs, opts)
 
