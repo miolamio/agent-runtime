@@ -3,7 +3,6 @@ package profile
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
@@ -19,11 +18,11 @@ type Profile struct {
 }
 
 func Load(name string) (*Profile, error) {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	path := filepath.Join(usr.HomeDir, ".airun", "profiles", name+".yaml")
+	path := filepath.Join(home, ".airun", "profiles", name+".yaml")
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -43,11 +42,11 @@ func Load(name string) (*Profile, error) {
 }
 
 func List() ([]string, error) {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	dir := filepath.Join(usr.HomeDir, ".airun", "profiles")
+	dir := filepath.Join(home, ".airun", "profiles")
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -65,11 +64,11 @@ func List() ([]string, error) {
 
 // SkillPaths returns host paths for listed skills.
 func (p *Profile) SkillPaths() []string {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	base := filepath.Join(usr.HomeDir, ".airun", "skills")
+	base := filepath.Join(home, ".airun", "skills")
 	var paths []string
 	for _, s := range p.Skills {
 		path := filepath.Join(base, s)

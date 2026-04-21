@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 )
@@ -54,11 +53,10 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	home := usr.HomeDir
 	baseDir := filepath.Join(home, ".airun")
 	envFile := filepath.Join(baseDir, "config.env")
 

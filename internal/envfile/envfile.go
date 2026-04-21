@@ -3,17 +3,16 @@ package envfile
 import (
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 )
 
 func privateTmpDir() string {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return os.TempDir() // fallback
 	}
-	dir := filepath.Join(usr.HomeDir, ".airun", "tmp")
+	dir := filepath.Join(home, ".airun", "tmp")
 	os.MkdirAll(dir, 0700)
 	return dir
 }
