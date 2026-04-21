@@ -15,6 +15,7 @@ ENV TERM=xterm-256color \
     LANG=en_US.UTF-8 \
     CLAUDE_CONFIG_DIR=/home/${USERNAME}/.claude \
     NODE_PATH=/usr/lib/node_modules \
+    PLAYWRIGHT_BROWSERS_PATH=/home/${USERNAME}/.cache/ms-playwright \
     PATH=/home/${USERNAME}/.local/bin:/usr/local/bin:$PATH
 
 # ── System packages + Playwright/Chromium dependencies ──
@@ -70,10 +71,16 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Playwright + Chromium (headless) ──
-RUN npm install -g @playwright/cli playwright
+# @playwright/cli provides the runtime commands used by the playwright-cli skill
+# (open, snapshot, click, fill, run-code, video-*). It pulls playwright as a
+# dependency; do not install playwright separately to avoid a version mismatch
+# between the CLI's bundled playwright and a standalone one.
+RUN npm install -g @playwright/cli
 USER ${USERNAME}
-RUN cd /tmp && playwright-cli install \
-    && npx playwright install chromium
+# `install-browser chromium` pulls Chromium, headless shell, and FFmpeg;
+# Firefox/WebKit are skipped on purpose — GTK deps aren't installed and the
+# playwright-cli skill targets Chromium only.
+RUN playwright-cli install-browser chromium
 USER root
 
 # ── Plugins & Skills Marketplace ──

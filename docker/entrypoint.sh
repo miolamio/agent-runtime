@@ -169,10 +169,8 @@ if [ "${AIRUN_BROWSER}" = "cdp" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
     export PLAYWRIGHT_CHROMIUM_ARGS="--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0"
 fi
 
-# Set DISPLAY for Playwright headed mode if VNC is active
-if [ -n "${DISPLAY}" ]; then
-    export PLAYWRIGHT_BROWSERS_PATH=/home/${_USER}/.cache/ms-playwright
-fi
+# Ensure Playwright can find browsers (set in Dockerfile ENV too, but be explicit)
+export PLAYWRIGHT_BROWSERS_PATH=/home/${_USER}/.cache/ms-playwright
 
 # ── Drop to non-root user and exec ──
 if [ "${1#-}" != "${1}" ] || [ -z "$(command -v "${1}" 2>/dev/null)" ]; then
