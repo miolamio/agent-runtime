@@ -65,6 +65,26 @@ func appendClaudeCmd(args []string, opts RunOpts) []string {
 	return args
 }
 
+// recordHistoryEntry saves a run record to ~/.airun/runs/ and prints the
+// final `done in …` summary line. Shared across every non-interactive flow.
+func recordHistoryEntry(opts RunOpts, provider, model string, start time.Time, exitCode int, output string) {
+	rec := history.RunRecord{
+		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
+		Profile:    opts.Profile,
+		Provider:   provider,
+		Model:      model,
+		Prompt:     opts.Prompt,
+		DurationMs: time.Since(start).Milliseconds(),
+		ExitCode:   exitCode,
+		RunDir:     history.NewRunDir(opts.Profile, provider),
+	}
+	history.Save(rec, output)
+
+	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
+		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
+	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
+}
+
 // appendStateAndExtras appends the per-profile state volume, profile-provided
 // extra volumes, optional agents dir mount, and browser env/port args to a
 // docker `run`/`create` argv. The workspace mount is intentionally left to
@@ -243,21 +263,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 		exitCode = 1
 	}
 
-	rec := history.RunRecord{
-		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
-		Profile:    opts.Profile,
-		Provider:   provider,
-		Model:      model,
-		Prompt:     opts.Prompt,
-		DurationMs: time.Since(start).Milliseconds(),
-		ExitCode:   exitCode,
-		RunDir:     history.NewRunDir(opts.Profile, provider),
-	}
-	history.Save(rec, outputBuf.String())
-
-	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
-		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
-	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
+	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
 
 	return err
 }
@@ -303,21 +309,7 @@ func runDockerSnapshot(cfg *config.Config, opts RunOpts, provider, model, envPat
 	cleanupContainer(containerName)
 
 	// Save history
-	rec := history.RunRecord{
-		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
-		Profile:    opts.Profile,
-		Provider:   provider,
-		Model:      model,
-		Prompt:     opts.Prompt,
-		DurationMs: time.Since(start).Milliseconds(),
-		ExitCode:   exitCode,
-		RunDir:     history.NewRunDir(opts.Profile, provider),
-	}
-	history.Save(rec, outputBuf.String())
-
-	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
-		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
-	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
+	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
 
 	return runErr
 }
@@ -385,21 +377,7 @@ func runDockerWithExport(cfg *config.Config, opts RunOpts, provider, model strin
 
 	cleanupContainer(containerName)
 
-	rec := history.RunRecord{
-		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
-		Profile:    opts.Profile,
-		Provider:   provider,
-		Model:      model,
-		Prompt:     opts.Prompt,
-		DurationMs: time.Since(start).Milliseconds(),
-		ExitCode:   exitCode,
-		RunDir:     history.NewRunDir(opts.Profile, provider),
-	}
-	history.Save(rec, outputBuf.String())
-
-	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
-		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
-	fmt.Fprintf(os.Stderr, "[airun] log: %s\n", rec.RunDir)
+	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
 
 	return runErr
 }
