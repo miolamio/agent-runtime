@@ -21,6 +21,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Playwright CLI session artifacts
+.playwright-cli/
+
 # Build artifacts
 /dist/
 *.skill
