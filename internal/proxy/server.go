@@ -212,7 +212,7 @@ func DefaultPaths() (configPath, studentsPath string) {
 
 	if _, err := os.Stat(configPath); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(oldConfig); err == nil {
-			os.MkdirAll(baseDir, 0700)
+			_ = os.MkdirAll(baseDir, 0700) // best-effort; Rename surfaces the real failure
 			if os.Rename(oldConfig, configPath) == nil {
 				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldConfig, configPath)
 			}
@@ -220,7 +220,7 @@ func DefaultPaths() (configPath, studentsPath string) {
 	}
 	if _, err := os.Stat(studentsPath); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(oldStudents); err == nil {
-			os.MkdirAll(baseDir, 0700)
+			_ = os.MkdirAll(baseDir, 0700) // best-effort; Rename surfaces the real failure
 			if os.Rename(oldStudents, studentsPath) == nil {
 				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldStudents, studentsPath)
 			}

@@ -3,7 +3,9 @@ package students
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
@@ -26,9 +28,13 @@ type Manager struct {
 }
 
 // New creates a Manager for the given file path and attempts to load existing data.
+// A missing file is treated as a fresh install; any other load error is logged to stderr
+// so a corrupted students.json doesn't silently present as an empty user list.
 func New(path string) *Manager {
 	m := &Manager{path: path}
-	m.Load()
+	if err := m.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "[proxy] warning: could not load %s: %v\n", path, err)
+	}
 	return m
 }
 
@@ -54,7 +60,10 @@ func (m *Manager) Load() error {
 	}
 	m.students = students
 	if migrated {
-		m.Save()
+		// Self-healing: next Load will re-migrate if Save fails, so don't fail the whole Load.
+		if err := m.Save(); err != nil {
+			fmt.Fprintf(os.Stderr, "[proxy] warning: token migration not persisted: %v\n", err)
+		}
 	}
 	return nil
 }

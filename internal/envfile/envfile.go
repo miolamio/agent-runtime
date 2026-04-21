@@ -13,7 +13,9 @@ func privateTmpDir() string {
 		return os.TempDir() // fallback
 	}
 	dir := filepath.Join(home, ".airun", "tmp")
-	os.MkdirAll(dir, 0700)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return os.TempDir() // fallback — caller will still get a usable dir
+	}
 	return dir
 }
 

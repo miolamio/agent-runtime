@@ -307,7 +307,7 @@ func main() {
 		agents = append(agents, s)
 		return nil
 	})
-	fs.Parse(os.Args[1:])
+	_ = fs.Parse(os.Args[1:]) // ExitOnError handles parse failures
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -367,7 +367,7 @@ func runShell(args []string) {
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
 	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
 	browser := fs.String("browser", "", "Browser display: vnc | cdp | both")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError handles parse failures
 
 	cfg, err := config.Load()
 	if err != nil {

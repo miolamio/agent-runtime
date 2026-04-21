@@ -108,7 +108,9 @@ func Disconnect() error {
 				}
 			}
 			settings["env"] = env
-			writeSettings(settingsPath, settings)
+			if err := writeSettings(settingsPath, settings); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: could not update %s: %v\n", settingsPath, err)
+			}
 		}
 	}
 
@@ -239,7 +241,9 @@ func cleanClaudeJSON(path string) bool {
 		}
 	}
 	if changed {
-		writeSettings(path, cj)
+		if err := writeSettings(path, cj); err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: could not update %s: %v\n", path, err)
+		}
 	}
 	return changed
 }

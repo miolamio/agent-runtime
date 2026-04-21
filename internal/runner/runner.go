@@ -82,7 +82,9 @@ func recordHistoryEntry(opts RunOpts, provider, model string, start time.Time, e
 		ExitCode:   exitCode,
 		RunDir:     history.NewRunDir(opts.Profile, provider),
 	}
-	history.Save(rec, output)
+	if err := history.Save(rec, output); err != nil {
+		fmt.Fprintf(os.Stderr, "[airun] warning: could not save run history: %v\n", err)
+	}
 
 	fmt.Fprintf(os.Stderr, "[airun] done in %.1fs | profile=%s provider=%s | exit=%d\n",
 		float64(rec.DurationMs)/1000, rec.Profile, rec.Provider, rec.ExitCode)
@@ -433,6 +435,9 @@ func generatePluginScript(plugins []string) (string, error) {
 		return "", err
 	}
 	f.Close()
-	os.Chmod(f.Name(), 0755)
+	if err := os.Chmod(f.Name(), 0755); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("chmod plugin script: %w", err)
+	}
 	return f.Name(), nil
 }

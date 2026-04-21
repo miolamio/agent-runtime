@@ -56,7 +56,9 @@ KIMI_MODEL=kimi-k2.5
 API_TIMEOUT_MS=3000000
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 `, filepath.Join(home, "src"))
-			os.WriteFile(envFile, []byte(content), 0600)
+			if err := os.WriteFile(envFile, []byte(content), 0600); err != nil {
+				return fmt.Errorf("write %s: %w", envFile, err)
+			}
 		}
 
 		// Provider selection
@@ -95,7 +97,9 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 			}
 			if current == "" || !currentHasKey {
 				current = configured[0]
-				keys.UpdateEnvKey(envFile, "ARUN_PROVIDER", current)
+				if err := keys.UpdateEnvKey(envFile, "ARUN_PROVIDER", current); err != nil {
+					fmt.Fprintf(os.Stderr, "  Warning: could not set default provider: %v\n", err)
+				}
 			}
 			if len(configured) > 1 {
 				p := keys.ProviderByAlias(current)
@@ -108,7 +112,9 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 				answer, _ := reader.ReadString('\n')
 				answer = strings.TrimSpace(strings.ToLower(answer))
 				if answer != "" && answer != "n" {
-					keys.SetDefault(envFile, answer)
+					if err := keys.SetDefault(envFile, answer); err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: could not change default: %v\n", err)
+					}
 				}
 			}
 		}
@@ -129,7 +135,10 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 		filepath.Join(baseDir, "tmp"),
 	}
 	for _, d := range dirs {
-		os.MkdirAll(d, 0755)
+		if err := os.MkdirAll(d, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "    Warning: could not create %s: %v\n", d, err)
+			continue
+		}
 		fmt.Printf("    %s\n", d)
 	}
 
@@ -152,8 +161,15 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 				src := filepath.Join(srcProfiles, e.Name())
 				dst := filepath.Join(dstDir, e.Name())
 				if _, err := os.Stat(dst); err != nil {
-					data, _ := os.ReadFile(src)
-					os.WriteFile(dst, data, 0644)
+					data, readErr := os.ReadFile(src)
+					if readErr != nil {
+						fmt.Fprintf(os.Stderr, "    Warning: read %s: %v\n", src, readErr)
+						continue
+					}
+					if err := os.WriteFile(dst, data, 0644); err != nil {
+						fmt.Fprintf(os.Stderr, "    Warning: write %s: %v\n", dst, err)
+						continue
+					}
 					fmt.Printf("    %s\n", e.Name())
 				}
 			}
@@ -166,12 +182,17 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	fmt.Println()
 	binSrc, _ := os.Executable()
 	binDst := filepath.Join(home, ".local", "bin", "airun")
-	os.MkdirAll(filepath.Dir(binDst), 0755)
+	if err := os.MkdirAll(filepath.Dir(binDst), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not create %s: %v\n", filepath.Dir(binDst), err)
+	}
 	if binSrc != "" && binSrc != binDst {
 		data, err := os.ReadFile(binSrc)
 		if err == nil {
-			os.WriteFile(binDst, data, 0755)
-			fmt.Printf("  Installed: %s\n", binDst)
+			if err := os.WriteFile(binDst, data, 0755); err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: install %s: %v\n", binDst, err)
+			} else {
+				fmt.Printf("  Installed: %s\n", binDst)
+			}
 		}
 	}
 
@@ -180,10 +201,14 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	pathLine := `export PATH="$HOME/.local/bin:$PATH"`
 	if data, err := os.ReadFile(zshrc); err == nil {
 		if !strings.Contains(string(data), ".local/bin") {
-			f, _ := os.OpenFile(zshrc, os.O_APPEND|os.O_WRONLY, 0644)
-			fmt.Fprintf(f, "\n# Agent Runtime\n%s\n", pathLine)
-			f.Close()
-			fmt.Printf("  Added to ~/.zshrc: %s\n", pathLine)
+			f, err := os.OpenFile(zshrc, os.O_APPEND|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: could not update %s: %v\n", zshrc, err)
+			} else {
+				fmt.Fprintf(f, "\n# Agent Runtime\n%s\n", pathLine)
+				f.Close()
+				fmt.Printf("  Added to ~/.zshrc: %s\n", pathLine)
+			}
 		}
 	}
 

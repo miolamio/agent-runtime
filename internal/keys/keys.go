@@ -173,7 +173,9 @@ func Remove(envPath, alias string) error {
 		for _, other := range AllProviders() {
 			if other.ID != p.ID && kv[other.EnvKey] != "" {
 				fmt.Printf("  Default provider was %s. Changed to %s.\n", p.Name, other.Name)
-				UpdateEnvKey(envPath, "ARUN_PROVIDER", other.ID)
+				if err := UpdateEnvKey(envPath, "ARUN_PROVIDER", other.ID); err != nil {
+					fmt.Fprintf(os.Stderr, "  warning: could not update default provider: %v\n", err)
+				}
 				break
 			}
 		}
@@ -365,10 +367,16 @@ func AddRemote(envPath string) error {
 	}
 
 	// Save
-	UpdateEnvKey(envPath, "REMOTE_BASE_URL", proxyURL)
-	UpdateEnvKey(envPath, "REMOTE_API_KEY", apiKey)
-	UpdateEnvKey(envPath, "REMOTE_MODELS", strings.Join(models, ","))
-	UpdateEnvKey(envPath, "REMOTE_DEFAULT_MODEL", defaultModel)
+	for _, kv := range [][2]string{
+		{"REMOTE_BASE_URL", proxyURL},
+		{"REMOTE_API_KEY", apiKey},
+		{"REMOTE_MODELS", strings.Join(models, ",")},
+		{"REMOTE_DEFAULT_MODEL", defaultModel},
+	} {
+		if err := UpdateEnvKey(envPath, kv[0], kv[1]); err != nil {
+			return fmt.Errorf("write %s: %w", kv[0], err)
+		}
+	}
 
 	fmt.Printf("\n  Remote proxy configured: %s (%d models)\n", proxyURL, len(models))
 	fmt.Printf("  Default model: %s\n\n", defaultModel)

@@ -90,8 +90,8 @@ func List(limit int) ([]RunRecord, error) {
 
 func FormatTable(records []RunRecord) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%-18s %-8s %-6s %8s  %-40s %s\n",
-		"TIME", "PROFILE", "PROV", "DURATION", "PROMPT", "STATUS"))
+	fmt.Fprintf(&sb, "%-18s %-8s %-6s %8s  %-40s %s\n",
+		"TIME", "PROFILE", "PROV", "DURATION", "PROMPT", "STATUS")
 	sb.WriteString(strings.Repeat("-", 95) + "\n")
 	for _, r := range records {
 		prompt := r.Prompt
@@ -103,8 +103,8 @@ func FormatTable(records []RunRecord) string {
 			status = "fail"
 		}
 		dur := fmt.Sprintf("%.1fs", float64(r.DurationMs)/1000)
-		sb.WriteString(fmt.Sprintf("%-18s %-8s %-6s %8s  %-40s %s\n",
-			r.Timestamp[:16], r.Profile, r.Provider, dur, prompt, status))
+		fmt.Fprintf(&sb, "%-18s %-8s %-6s %8s  %-40s %s\n",
+			r.Timestamp[:16], r.Profile, r.Provider, dur, prompt, status)
 	}
 	return sb.String()
 }

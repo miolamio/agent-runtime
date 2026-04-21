@@ -273,7 +273,7 @@ func migrateFile(oldPath, newPath string) {
 	if _, err := os.Stat(oldPath); err != nil {
 		return // old path doesn't exist
 	}
-	os.MkdirAll(filepath.Dir(newPath), 0700)
+	_ = os.MkdirAll(filepath.Dir(newPath), 0700) // best-effort; Rename will surface the real failure
 	if err := os.Rename(oldPath, newPath); err == nil {
 		fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldPath, newPath)
 	}
@@ -288,7 +288,7 @@ func migrateDir(oldPath, newPath string) {
 	if err != nil || !info.IsDir() {
 		return
 	}
-	os.MkdirAll(filepath.Dir(newPath), 0700)
+	_ = os.MkdirAll(filepath.Dir(newPath), 0700) // best-effort; Rename will surface the real failure
 	if err := os.Rename(oldPath, newPath); err == nil {
 		fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldPath, newPath)
 	}
