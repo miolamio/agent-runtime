@@ -19,7 +19,7 @@ import (
 	"github.com/miolamio/agent-runtime/internal/setup"
 )
 
-const version = "0.6.0"
+const version = "0.6.1"
 
 func main() {
 	if len(os.Args) < 2 {
