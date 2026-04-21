@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	// ImageName is the tag airun expects for the agent runtime container
+	// image. Exported because `airun rebuild` in cmd/airun references it.
+	ImageName = "agent-runtime:latest"
+
 	stateVolumeName = "airun-claude-state"
 	stateMountPath  = "/home/claude/.claude"
 )
@@ -175,7 +179,6 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		}
 	}
 
-	// Fix 2: mount = pwd (not config.Workspace)
 	mount := opts.Mount
 	if mount == "" {
 		mount, _ = os.Getwd()
@@ -189,7 +192,6 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Browser: opts.Browser}, provider, model, extraVolumes)
 	}
 
-	// Fix 2: log actual mount, not config.Workspace
 	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
 
 	mode := cfg.Mode
@@ -227,8 +229,6 @@ func Run(cfg *config.Config, opts RunOpts) error {
 // `docker cp` — snapshot input or workspace export — go through
 // runContainerCreate instead.
 func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVolumes []string) error {
-	imageName := "agent-runtime:latest"
-
 	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
 	if err != nil {
 		return err
@@ -248,7 +248,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	}
 	args = appendStateAndExtras(args, cfg, opts, extraVolumes)
 
-	args = append(args, imageName)
+	args = append(args, ImageName)
 
 	// Claude Code command (non-interactive only)
 	if !opts.Interactive {
@@ -256,7 +256,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	}
 
 	fmt.Fprintf(os.Stderr, "[airun] docker %s --env-file %s %s\n",
-		args[0]+" "+args[1], envfile.MaskLog(envPath), imageName)
+		args[0]+" "+args[1], envfile.MaskLog(envPath), ImageName)
 
 	if opts.Interactive {
 		cmd := exec.Command("docker", args...)
@@ -299,7 +299,6 @@ func runContainerCreate(
 	copyOut string,
 	namePrefix string,
 ) error {
-	imageName := "agent-runtime:latest"
 	containerName := fmt.Sprintf("%s-%d", namePrefix, time.Now().Unix())
 
 	envPath, err := envfile.Write(cfg.ContainerEnvWithModel(provider, model))
@@ -313,7 +312,7 @@ func runContainerCreate(
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
 	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
-	createArgs = append(createArgs, imageName)
+	createArgs = append(createArgs, ImageName)
 	createArgs = appendClaudeCmd(createArgs, opts)
 
 	if copyIn {

@@ -84,7 +84,7 @@ func main() {
 		return
 	case "rebuild":
 		fmt.Println("[airun] Rebuilding agent-runtime image...")
-		args := []string{"build", "-t", "agent-runtime:latest"}
+		args := []string{"build", "-t", runner.ImageName}
 		rebuildFlags := map[string]bool{}
 		for _, a := range os.Args[2:] {
 			rebuildFlags[a] = true
@@ -121,7 +121,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "[airun] rebuild failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("[airun] Rebuild complete: agent-runtime:latest")
+		fmt.Println("[airun] Rebuild complete: " + runner.ImageName)
 		return
 	case "history":
 		records, err := history.List(20)
