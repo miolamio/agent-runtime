@@ -50,93 +50,51 @@ if [ -f "$IMAGE_BUILD_ID_FILE" ]; then
     fi
 fi
 
-# ── Seed plugin JSON configs (from build-time metadata) ──
+# ── Register plugin marketplaces on first run ──
+# claude CLI stores registrations in ~/.claude/settings.json under
+# extraKnownMarketplaces. Pre-cloned local paths are accepted for
+# miolamio/anthropic-agent-skills; the "claude-plugins-official" name is
+# reserved and must be registered via the anthropics GitHub source.
+#
+# A sentinel avoids re-running on warm starts when the state volume
+# persists ~/.claude/.
 PLUGINS_DIR="${_HOME}/.claude/plugins"
-SEED_META="${PLUGINS_DIR}/.seed-metadata.json"
-if [ -f "$SEED_META" ] && [ ! -f "$PLUGINS_DIR/installed_plugins.json" ]; then
-    CPO_SHA=$(jq -r '.cpo_sha' "$SEED_META")
-    SP_VER=$(jq -r '.sp_ver' "$SEED_META")
-    SP_SHA=$(jq -r '.sp_sha' "$SEED_META")
-    SEEDED_AT=$(jq -r '.seeded_at' "$SEED_META")
+SENTINEL="${_HOME}/.claude/.airun-marketplaces-registered"
+if [ ! -f "$SENTINEL" ]; then
+    echo "[airun] registering plugin marketplaces (first run)…" >&2
+    gosu "$_USER" claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 || \
+        echo "[airun] warning: failed to register claude-plugins-official" >&2
+    if [ -d "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills" ]; then
+        gosu "$_USER" claude plugin marketplace add "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills" >/dev/null 2>&1 || \
+            echo "[airun] warning: failed to register miolamio-agent-skills" >&2
+    fi
+    if [ -d "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills" ]; then
+        gosu "$_USER" claude plugin marketplace add "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills" >/dev/null 2>&1 || \
+            echo "[airun] warning: failed to register anthropic-agent-skills" >&2
+    fi
 
-    cat > "$PLUGINS_DIR/known_marketplaces.json" <<KMEOF
-{
-  "claude-plugins-official": {
-    "source": { "source": "github", "repo": "anthropics/claude-plugins-official" },
-    "installLocation": "${PLUGINS_DIR}/marketplaces/claude-plugins-official",
-    "lastUpdated": "${SEEDED_AT}"
-  },
-  "miolamio-agent-skills": {
-    "source": { "source": "github", "repo": "miolamio/agent-skills" },
-    "installLocation": "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills",
-    "lastUpdated": "${SEEDED_AT}"
-  },
-  "anthropic-agent-skills": {
-    "source": { "source": "github", "repo": "anthropics/skills" },
-    "installLocation": "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills",
-    "lastUpdated": "${SEEDED_AT}"
-  }
-}
-KMEOF
+    # Install base plugins (superpowers, context7, skill-creator).
+    for _base in context7@claude-plugins-official skill-creator@claude-plugins-official superpowers@claude-plugins-official; do
+        gosu "$_USER" claude plugin install "${_base}" >/dev/null 2>&1 || \
+            echo "[airun] warning: base plugin install failed: ${_base}" >&2
+    done
 
-    cat > "$PLUGINS_DIR/installed_plugins.json" <<IPEOF
-{
-  "version": 2,
-  "plugins": {
-    "context7@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/context7/${CPO_SHA}",
-        "version": "${CPO_SHA}",
-        "installedAt": "${SEEDED_AT}",
-        "lastUpdated": "${SEEDED_AT}"
-      }
-    ],
-    "skill-creator@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/skill-creator/${CPO_SHA}",
-        "version": "${CPO_SHA}",
-        "installedAt": "${SEEDED_AT}",
-        "lastUpdated": "${SEEDED_AT}"
-      }
-    ],
-    "superpowers@claude-plugins-official": [
-      {
-        "scope": "user",
-        "installPath": "${PLUGINS_DIR}/cache/claude-plugins-official/superpowers/${SP_VER}",
-        "version": "${SP_VER}",
-        "installedAt": "${SEEDED_AT}",
-        "lastUpdated": "${SEEDED_AT}",
-        "gitCommitSha": "${SP_SHA}"
-      }
-    ]
-  }
-}
-IPEOF
-
-    chown "${_USER}:${_USER}" "$PLUGINS_DIR/known_marketplaces.json" "$PLUGINS_DIR/installed_plugins.json"
-    echo "[airun] plugins: context7, skill-creator, superpowers seeded" >&2
+    mkdir -p "$(dirname "$SENTINEL")"
+    touch "$SENTINEL"
+    chown "${_USER}:${_USER}" "$SENTINEL"
+    echo "[airun] marketplaces registered + base plugins installed" >&2
 fi
 
-# ── Profile-specific plugins (comma-separated name[@marketplace] list) ──
-# Base plugins (context7, skill-creator, superpowers) are already seeded above;
-# everything else declared by the profile goes through `claude plugin install`
-# at container startup. Failures are non-fatal: we tolerate transient marketplace
-# issues rather than block the entire run.
+# ── Profile-specific plugins (comma-separated name@marketplace list) ──
+# Invoked with the single-argument "name@marketplace" form that claude CLI
+# supports. Failures are non-fatal: we tolerate transient marketplace issues
+# rather than block the entire run.
 if [ -n "${AIRUN_PLUGINS:-}" ]; then
     echo "[airun] profile plugins: ${AIRUN_PLUGINS}" >&2
     IFS=',' read -ra _plugins <<< "${AIRUN_PLUGINS}"
     for _plugin in "${_plugins[@]}"; do
-        _name="${_plugin%@*}"
-        _market="${_plugin#*@}"
-        if [ "${_name}" = "${_plugin}" ]; then
-            gosu "$_USER" claude plugin install "${_name}" 2>/dev/null || \
-                echo "[airun] warning: plugin install failed: ${_name}" >&2
-        else
-            gosu "$_USER" claude plugin install "${_name}" --marketplace "${_market}" 2>/dev/null || \
-                echo "[airun] warning: plugin install failed: ${_name}@${_market}" >&2
-        fi
+        gosu "$_USER" claude plugin install "${_plugin}" >/dev/null 2>&1 || \
+            echo "[airun] warning: plugin install failed: ${_plugin}" >&2
     done
 fi
 

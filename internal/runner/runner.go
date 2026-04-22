@@ -426,7 +426,11 @@ func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, e
 		}
 		f.Close()
 		settingsPath = f.Name()
-		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json:ro", settingsPath))
+		// RW mount: claude CLI writes marketplace registrations and installed
+		// plugin metadata back to settings.json during `plugin install`. The
+		// file is a throwaway tmp copy of the profile's settings (the caller
+		// defers os.Remove), so claude's writes don't leak back to the profile.
+		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json", settingsPath))
 	}
 
 	return volumes, settingsPath, env, nil

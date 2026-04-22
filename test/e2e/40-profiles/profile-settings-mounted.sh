@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# A profile with a `settings:` block must marshal it to JSON and mount the
-# resulting file as /home/claude/.claude/settings.json read-only.
+# A profile with a `settings:` block must marshal it to JSON and bind-mount
+# the resulting file at /home/claude/.claude/settings.json. The mount is RW
+# (no :ro suffix) so claude CLI can write marketplace registrations and
+# plugin install state back into the same file — the caller defers os.Remove
+# on the tmp copy, so claude's mutations do not leak back to the profile.
 source "${E2E_LIB}/harness.sh"
 source "${E2E_LIB}/env.sh"
 source "${E2E_LIB}/skip.sh"
@@ -18,8 +21,10 @@ mk_test_profile "$th" "$tag" "settings:
 PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" -p "$tag" "ping" >/dev/null 2>&1 || true
 
 log=$(cat "$DOCKER_SHIM_LOG")
-assert_contains "$log" "/home/claude/.claude/settings.json:ro" \
-    "settings.json is bind-mounted read-only"
+assert_contains "$log" "/home/claude/.claude/settings.json" \
+    "settings.json is bind-mounted"
+assert_not_contains "$log" "/home/claude/.claude/settings.json:ro" \
+    "settings.json mount is RW, not RO"
 
 snap="$DOCKER_SHIM_CAPTURE/settings.json"
 assert_file_exists "$snap" "shim captured the rendered settings.json"
