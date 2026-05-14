@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -76,13 +77,53 @@ func (m *Manager) Load() error {
 	return nil
 }
 
-// Save writes the current user list to the JSON file.
+// Save writes the current user list to the JSON file atomically: a temp file
+// in the same directory is written, fsynced, then renamed over the target.
+// On any failure the temp file is removed so a partial users.json never ends
+// up in place.
 func (m *Manager) Save() error {
 	data, err := json.MarshalIndent(m.users, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.path, append(data, '\n'), 0600)
+	data = append(data, '\n')
+
+	dir := filepath.Dir(m.path)
+	tmp, err := os.CreateTemp(dir, ".users-*.json.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpPath, m.path); err != nil {
+		cleanup()
+		return err
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
 }
 
 // Add creates a new user with a random token and persists the change.
