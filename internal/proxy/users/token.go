@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"crypto/rand"
@@ -27,8 +27,9 @@ func GenerateToken() (string, error) {
 }
 
 // HashToken returns the hex-encoded SHA-256 hash of the given token. Kept for
-// backward compatibility — existing v0.6.0 students.json files store tokens
-// in this format and are transparently verified (and upgraded) by VerifyToken.
+// backward compatibility — existing v0.6.0 users.json (formerly students.json)
+// files store tokens in this format and are transparently verified (and
+// upgraded) by VerifyToken.
 func HashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])

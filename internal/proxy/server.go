@@ -12,11 +12,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/miolamio/agent-runtime/internal/proxy/students"
+	"github.com/miolamio/agent-runtime/internal/proxy/users"
 )
 
 // Serve starts the proxy HTTP server.
-func Serve(configPath, studentsPath, listenOverride string) error {
+func Serve(configPath, usersPath, listenOverride string) error {
 	cfg, err := LoadProxyConfig(configPath)
 	if err != nil {
 		return err
@@ -25,7 +25,7 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 		cfg.Listen = listenOverride
 	}
 
-	mgr := students.New(studentsPath)
+	mgr := users.New(usersPath)
 	handler := NewHandler(cfg, mgr)
 
 	// SIGHUP reloads users + proxy.yaml (providers, rpm, user_agent).
@@ -83,8 +83,8 @@ func Serve(configPath, studentsPath, listenOverride string) error {
 	return http.ListenAndServe(cfg.Listen, handler)
 }
 
-// Init creates proxy.yaml and students.json with defaults.
-func Init(configPath, studentsPath string) error {
+// Init creates proxy.yaml and users.json with defaults.
+func Init(configPath, usersPath string) error {
 	if _, err := os.Stat(configPath); err == nil {
 		return fmt.Errorf("%s already exists", configPath)
 	}
@@ -124,19 +124,19 @@ providers:
 	}
 	fmt.Printf("  Created: %s\n", configPath)
 
-	if err := os.WriteFile(studentsPath, []byte("[]\n"), 0600); err != nil {
-		return fmt.Errorf("write %s: %w", studentsPath, err)
+	if err := os.WriteFile(usersPath, []byte("[]\n"), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", usersPath, err)
 	}
-	fmt.Printf("  Created: %s\n", studentsPath)
+	fmt.Printf("  Created: %s\n", usersPath)
 
 	fmt.Println()
 	fmt.Printf("  Edit %s to add provider API keys.\n", configPath)
 	return nil
 }
 
-// StudentAdd adds a user and prints the token.
-func StudentAdd(studentsPath, name string) error {
-	mgr := students.New(studentsPath)
+// UserAdd adds a user and prints the token.
+func UserAdd(usersPath, name string) error {
+	mgr := users.New(usersPath)
 	tok, err := mgr.Add(name)
 	if err != nil {
 		return err
@@ -145,9 +145,9 @@ func StudentAdd(studentsPath, name string) error {
 	return nil
 }
 
-// StudentList prints all users.
-func StudentList(studentsPath string) error {
-	mgr := students.New(studentsPath)
+// UserList prints all users.
+func UserList(usersPath string) error {
+	mgr := users.New(usersPath)
 	all := mgr.List()
 	if len(all) == 0 {
 		fmt.Println("  No users.")
@@ -155,40 +155,40 @@ func StudentList(studentsPath string) error {
 	}
 	fmt.Printf("\n  %-20s %-10s %s\n", "Name", "Status", "Token")
 	fmt.Printf("  %-20s %-10s %s\n", "----", "------", "-----")
-	for _, s := range all {
+	for _, u := range all {
 		status := "active"
-		if !s.Active {
+		if !u.Active {
 			status = "revoked"
 		}
-		masked := s.Token
+		masked := u.Token
 		if len(masked) >= 14 {
-			masked = s.Token[:10] + "..." + s.Token[len(s.Token)-4:]
+			masked = u.Token[:10] + "..." + u.Token[len(u.Token)-4:]
 		}
-		fmt.Printf("  %-20s %-10s %s\n", s.Name, status, masked)
+		fmt.Printf("  %-20s %-10s %s\n", u.Name, status, masked)
 	}
 	fmt.Println()
 	return nil
 }
 
-// StudentRevoke deactivates a user.
-func StudentRevoke(studentsPath, name string) error {
-	mgr := students.New(studentsPath)
+// UserRevoke deactivates a user.
+func UserRevoke(usersPath, name string) error {
+	mgr := users.New(usersPath)
 	return mgr.Revoke(name)
 }
 
-// StudentRestore reactivates a user.
-func StudentRestore(studentsPath, name string) error {
-	mgr := students.New(studentsPath)
+// UserRestore reactivates a user.
+func UserRestore(usersPath, name string) error {
+	mgr := users.New(usersPath)
 	return mgr.Restore(name)
 }
 
-// StudentImport reads names from a file (one per line) and adds them as users.
-func StudentImport(studentsPath, listPath string) error {
+// UserImport reads names from a file (one per line) and adds them as users.
+func UserImport(usersPath, listPath string) error {
 	data, err := os.ReadFile(listPath)
 	if err != nil {
 		return err
 	}
-	mgr := students.New(studentsPath)
+	mgr := users.New(usersPath)
 	lines := strings.Split(string(data), "\n")
 	count := 0
 	for _, line := range lines {
@@ -208,29 +208,34 @@ func StudentImport(studentsPath, listPath string) error {
 	return nil
 }
 
-// StudentExport prints all active users with full tokens.
-func StudentExport(studentsPath string) error {
-	mgr := students.New(studentsPath)
+// UserExport prints all active users with full tokens.
+func UserExport(usersPath string) error {
+	mgr := users.New(usersPath)
 	all := mgr.List()
-	for _, s := range all {
-		if s.Active {
-			fmt.Printf("%s\t%s\n", s.Name, s.Token)
+	for _, u := range all {
+		if u.Active {
+			fmt.Printf("%s\t%s\n", u.Name, u.Token)
 		}
 	}
 	return nil
 }
 
-// DefaultPaths returns default proxy config and students file paths.
-func DefaultPaths() (configPath, studentsPath string) {
+// DefaultPaths returns default proxy config and users file paths, performing
+// a best-effort one-shot migration of legacy locations:
+//   - ~/proxy.yaml     → ~/.airun/proxy.yaml
+//   - ~/students.json  → ~/.airun/users.json (pre-v0.7.0 layout)
+//   - ~/.airun/students.json → ~/.airun/users.json (v0.6.x → v0.8.0 rename)
+func DefaultPaths() (configPath, usersPath string) {
 	home, _ := os.UserHomeDir()
 	baseDir := filepath.Join(home, ".airun")
 
 	configPath = filepath.Join(baseDir, "proxy.yaml")
-	studentsPath = filepath.Join(baseDir, "students.json")
+	usersPath = filepath.Join(baseDir, "users.json")
 
 	// Migration from old paths
 	oldConfig := filepath.Join(home, "proxy.yaml")
-	oldStudents := filepath.Join(home, "students.json")
+	oldUsersPreAirun := filepath.Join(home, "students.json")
+	oldUsersInAirun := filepath.Join(baseDir, "students.json")
 
 	if _, err := os.Stat(configPath); errors.Is(err, fs.ErrNotExist) {
 		if _, err := os.Stat(oldConfig); err == nil {
@@ -240,14 +245,20 @@ func DefaultPaths() (configPath, studentsPath string) {
 			}
 		}
 	}
-	if _, err := os.Stat(studentsPath); errors.Is(err, fs.ErrNotExist) {
-		if _, err := os.Stat(oldStudents); err == nil {
-			_ = os.MkdirAll(baseDir, 0700) // best-effort; Rename surfaces the real failure
-			if os.Rename(oldStudents, studentsPath) == nil {
-				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldStudents, studentsPath)
+	if _, err := os.Stat(usersPath); errors.Is(err, fs.ErrNotExist) {
+		// Prefer the in-airun rename (v0.6.x → v0.8.0) over the home-dir one.
+		if _, err := os.Stat(oldUsersInAirun); err == nil {
+			_ = os.MkdirAll(baseDir, 0700)
+			if os.Rename(oldUsersInAirun, usersPath) == nil {
+				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldUsersInAirun, usersPath)
+			}
+		} else if _, err := os.Stat(oldUsersPreAirun); err == nil {
+			_ = os.MkdirAll(baseDir, 0700)
+			if os.Rename(oldUsersPreAirun, usersPath) == nil {
+				fmt.Fprintf(os.Stderr, "[airun] migrated %s → %s\n", oldUsersPreAirun, usersPath)
 			}
 		}
 	}
 
-	return configPath, studentsPath
+	return configPath, usersPath
 }

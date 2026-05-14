@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 
 func TestAddAndFind(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 	tok, err := mgr.Add("Ivanov")
 	if err != nil {
@@ -18,21 +18,21 @@ func TestAddAndFind(t *testing.T) {
 	if tok == "" {
 		t.Fatal("empty token")
 	}
-	s := mgr.FindByToken(tok)
-	if s == nil {
+	u := mgr.FindByToken(tok)
+	if u == nil {
 		t.Fatal("FindByToken returned nil")
 	}
-	if s.Name != "Ivanov" {
-		t.Errorf("Name = %q, want Ivanov", s.Name)
+	if u.Name != "Ivanov" {
+		t.Errorf("Name = %q, want Ivanov", u.Name)
 	}
-	if !s.Active {
+	if !u.Active {
 		t.Error("new user should be active")
 	}
 }
 
 func TestAddDuplicate(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 	mgr.Add("Ivanov")
 	_, err := mgr.Add("Ivanov")
@@ -43,14 +43,14 @@ func TestAddDuplicate(t *testing.T) {
 
 func TestRevoke(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 	tok, _ := mgr.Add("Ivanov")
 	if err := mgr.Revoke("Ivanov"); err != nil {
 		t.Fatal(err)
 	}
-	s := mgr.FindByToken(tok)
-	if s != nil {
+	u := mgr.FindByToken(tok)
+	if u != nil {
 		t.Error("FindByToken should return nil for revoked user")
 	}
 	// Verify user still exists in list but is inactive
@@ -65,7 +65,7 @@ func TestRevoke(t *testing.T) {
 
 func TestRestore(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 	mgr.Add("Ivanov")
 	mgr.Revoke("Ivanov")
@@ -78,34 +78,34 @@ func TestRestore(t *testing.T) {
 
 func TestPersistence(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr1 := New(path)
 	tok, _ := mgr1.Add("Ivanov")
 	mgr2 := New(path)
 	if err := mgr2.Load(); err != nil {
 		t.Fatal(err)
 	}
-	s := mgr2.FindByToken(tok)
-	if s == nil || s.Name != "Ivanov" {
+	u := mgr2.FindByToken(tok)
+	if u == nil || u.Name != "Ivanov" {
 		t.Error("user not found after reload")
 	}
 }
 
 func TestFindByTokenInactive(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 	tok, _ := mgr.Add("Ivanov")
 	mgr.Revoke("Ivanov")
-	s := mgr.FindByToken(tok)
-	if s != nil {
+	u := mgr.FindByToken(tok)
+	if u != nil {
 		t.Error("FindByToken should return nil for inactive user")
 	}
 }
 
 func TestAddManyUsersNoCorruption(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	os.WriteFile(path, []byte("[]"), 0600)
 	mgr := New(path)
 	tokens := make([]string, 50)
@@ -117,12 +117,12 @@ func TestAddManyUsersNoCorruption(t *testing.T) {
 		tokens[i] = tok
 	}
 	for i, tok := range tokens {
-		s := mgr.FindByToken(tok)
-		if s == nil {
+		u := mgr.FindByToken(tok)
+		if u == nil {
 			t.Fatalf("FindByToken nil for user%d", i)
 		}
-		if s.Name != fmt.Sprintf("user%d", i) {
-			t.Errorf("name %q, want user%d", s.Name, i)
+		if u.Name != fmt.Sprintf("user%d", i) {
+			t.Errorf("name %q, want user%d", u.Name, i)
 		}
 	}
 }

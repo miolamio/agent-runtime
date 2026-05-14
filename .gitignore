@@ -39,3 +39,10 @@ __pycache__/
 
 # Skills library (separate from agent-runtime)
 /.claude/skills/
+
+# Local development workspace / AI workspace
+.dev/
+.development/
+playwright-report/
+test-results/
+blob-report/

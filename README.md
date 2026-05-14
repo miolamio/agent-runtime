@@ -331,9 +331,9 @@ ssh root@your-server "chmod +x /usr/local/bin/airun"
 ssh root@your-server "airun proxy init"
 ```
 
-This creates two files:
-- `~/proxy.yaml` — provider configuration (API keys, models, rate limits)
-- `~/students.json` — user database (empty)
+This creates two files (in `~/.airun/`):
+- `proxy.yaml` — provider configuration (API keys, models, rate limits)
+- `users.json` — user database (empty)
 
 Edit `~/proxy.yaml` to add your provider API keys:
 
@@ -476,7 +476,7 @@ ssh root@your-server "airun proxy user revoke 'Ivanov'"
 ssh root@your-server "airun proxy user restore 'Ivanov'"
 ```
 
-The proxy picks up user changes on the next request. To reload `students.json` without restarting:
+The proxy picks up user changes on the next request. To reload `users.json` without restarting:
 
 ```bash
 ssh root@your-server "kill -HUP \$(pgrep -f 'airun proxy serve')"
@@ -542,13 +542,13 @@ To add a second (or third) proxy with the same config — copy the binary, confi
 scp bin/airun-linux root@new-server:/usr/local/bin/airun
 
 # Copy config from existing server
-ssh root@existing-server "cat ~/proxy.yaml" | ssh root@new-server "cat > ~/proxy.yaml && chmod 600 ~/proxy.yaml"
-ssh root@existing-server "cat ~/students.json" | ssh root@new-server "cat > ~/students.json && chmod 600 ~/students.json"
+ssh root@existing-server "cat ~/.airun/proxy.yaml" | ssh root@new-server "mkdir -p ~/.airun && cat > ~/.airun/proxy.yaml && chmod 600 ~/.airun/proxy.yaml"
+ssh root@existing-server "cat ~/.airun/users.json" | ssh root@new-server "cat > ~/.airun/users.json && chmod 600 ~/.airun/users.json"
 
 # Then repeat Steps 3–6 above with the new server's domain name
 ```
 
-Users can connect to any proxy instance with the same token — the user database is shared via the copied `students.json`.
+Users can connect to any proxy instance with the same token — the user database is shared via the copied `users.json`.
 
 ## Profiles
 
@@ -602,7 +602,7 @@ agent-runtime/
 │   ├── history/                  Run history storage
 │   ├── keys/                    Key management (add, remove, test, list)
 │   ├── proxy/                   API proxy server with user auth
-│   │   └── students/            User CRUD, token generation
+│   │   └── users/               User CRUD, token generation
 │   ├── monitor/                  Container status (docker ps)
 │   ├── prereq/                   Prerequisite checks
 │   ├── profile/                  YAML profile loader

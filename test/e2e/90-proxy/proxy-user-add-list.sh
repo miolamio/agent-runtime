@@ -19,9 +19,9 @@ if ! [[ "$token" =~ ^sk-ai-[0-9a-f]{64}$ ]]; then
 fi
 
 # Security invariant: the plaintext token must NEVER be persisted to disk.
-# students.json holds a bcrypt hash; the plaintext is printed to the admin
+# users.json holds a bcrypt hash; the plaintext is printed to the admin
 # once at add time and never again.
-json=$(cat "$th/.airun/students.json")
+json=$(cat "$th/.airun/users.json")
 assert_contains     "$json" '"name": "alice"' "user recorded under its name"
 assert_contains     "$json" '"active": true'  "user recorded as active"
 assert_not_contains "$json" "$token"          "plaintext token is NOT persisted"

@@ -47,7 +47,7 @@ airun keys model glm-5.1               # change default model
 ## Proxy (Admin)
 
 ```bash
-airun proxy init                        # create proxy.yaml + students.json
+airun proxy init                        # create proxy.yaml + users.json
 airun proxy serve                       # start on :8080
 airun proxy serve --port 9090           # custom port
 airun proxy user add "Name"             # create user, prints token

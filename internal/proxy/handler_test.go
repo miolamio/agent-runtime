@@ -11,14 +11,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/miolamio/agent-runtime/internal/proxy/students"
+	"github.com/miolamio/agent-runtime/internal/proxy/users"
 )
 
 func testSetup(t *testing.T) (*Handler, string) {
 	t.Helper()
 	dir := t.TempDir()
-	studentsPath := filepath.Join(dir, "students.json")
-	mgr := students.New(studentsPath)
+	usersPath := filepath.Join(dir, "users.json")
+	mgr := users.New(usersPath)
 	tok, _ := mgr.Add("TestUser")
 
 	cfg := &ProxyConfig{
@@ -94,9 +94,9 @@ func TestMessagesBodyTooLarge(t *testing.T) {
 		},
 	}
 	dir := t.TempDir()
-	sp := filepath.Join(dir, "students.json")
-	os.WriteFile(sp, []byte("[]"), 0600)
-	mgr := students.New(sp)
+	up := filepath.Join(dir, "users.json")
+	os.WriteFile(up, []byte("[]"), 0600)
+	mgr := users.New(up)
 	tok, _ := mgr.Add("BigUser")
 
 	h := NewHandler(cfg, mgr)
@@ -127,9 +127,9 @@ func TestRateLimitedUser(t *testing.T) {
 		},
 	}
 	dir := t.TempDir()
-	sp := filepath.Join(dir, "students.json")
-	os.WriteFile(sp, []byte("[]"), 0600)
-	mgr := students.New(sp)
+	up := filepath.Join(dir, "users.json")
+	os.WriteFile(up, []byte("[]"), 0600)
+	mgr := users.New(up)
 	tok, _ := mgr.Add("RateLimited")
 
 	h := NewHandler(cfg, mgr)
@@ -163,9 +163,9 @@ func TestRevokedUserRejected(t *testing.T) {
 		},
 	}
 	dir := t.TempDir()
-	sp := filepath.Join(dir, "students.json")
-	os.WriteFile(sp, []byte("[]"), 0600)
-	mgr := students.New(sp)
+	up := filepath.Join(dir, "users.json")
+	os.WriteFile(up, []byte("[]"), 0600)
+	mgr := users.New(up)
 	tok, _ := mgr.Add("Revoked")
 	mgr.Revoke("Revoked")
 

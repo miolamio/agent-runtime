@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// Student represents a registered user with an API token.
-type Student struct {
+// User represents a registered user with an API token.
+type User struct {
 	Name      string    `json:"name"`
 	Token     string    `json:"token"`
 	Active    bool      `json:"active"`
@@ -21,14 +21,14 @@ type Student struct {
 
 // Manager handles CRUD operations on a list of users persisted to a JSON file.
 type Manager struct {
-	path     string
-	students []Student
-	mu       sync.RWMutex
+	path  string
+	users []User
+	mu    sync.RWMutex
 }
 
 // New creates a Manager for the given file path and attempts to load existing data.
 // A missing file is treated as a fresh install; any other load error is logged to stderr
-// so a corrupted students.json doesn't silently present as an empty user list.
+// so a corrupted users.json doesn't silently present as an empty user list.
 func New(path string) *Manager {
 	m := &Manager{path: path}
 	if err := m.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -49,24 +49,24 @@ func (m *Manager) Load() error {
 	if err != nil {
 		return err
 	}
-	var students []Student
-	if err := json.Unmarshal(data, &students); err != nil {
+	var users []User
+	if err := json.Unmarshal(data, &users); err != nil {
 		return fmt.Errorf("parse %s: %w", m.path, err)
 	}
 	migrated := false
-	for i := range students {
-		if strings.HasPrefix(students[i].Token, tokenPrefix) {
-			hashed, hashErr := HashTokenBcrypt(students[i].Token)
+	for i := range users {
+		if strings.HasPrefix(users[i].Token, tokenPrefix) {
+			hashed, hashErr := HashTokenBcrypt(users[i].Token)
 			if hashErr != nil {
 				// bcrypt should not fail on valid input; fall back to SHA-256
 				// so plaintext is never left on disk even if bcrypt is broken.
-				hashed = HashToken(students[i].Token)
+				hashed = HashToken(users[i].Token)
 			}
-			students[i].Token = hashed
+			users[i].Token = hashed
 			migrated = true
 		}
 	}
-	m.students = students
+	m.users = users
 	if migrated {
 		// Self-healing: next Load will re-migrate if Save fails, so don't fail the whole Load.
 		if err := m.Save(); err != nil {
@@ -78,7 +78,7 @@ func (m *Manager) Load() error {
 
 // Save writes the current user list to the JSON file.
 func (m *Manager) Save() error {
-	data, err := json.MarshalIndent(m.students, "", "  ")
+	data, err := json.MarshalIndent(m.users, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -90,8 +90,8 @@ func (m *Manager) Save() error {
 func (m *Manager) Add(name string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, s := range m.students {
-		if s.Name == name {
+	for _, u := range m.users {
+		if u.Name == name {
 			return "", fmt.Errorf("user %q already exists", name)
 		}
 	}
@@ -103,8 +103,8 @@ func (m *Manager) Add(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s := Student{Name: name, Token: hashed, Active: true, CreatedAt: time.Now().UTC()}
-	m.students = append(m.students, s)
+	u := User{Name: name, Token: hashed, Active: true, CreatedAt: time.Now().UTC()}
+	m.users = append(m.users, u)
 	if err := m.Save(); err != nil {
 		return "", fmt.Errorf("save: %w", err)
 	}
@@ -115,9 +115,9 @@ func (m *Manager) Add(name string) (string, error) {
 func (m *Manager) Revoke(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i := range m.students {
-		if m.students[i].Name == name {
-			m.students[i].Active = false
+	for i := range m.users {
+		if m.users[i].Name == name {
+			m.users[i].Active = false
 			return m.Save()
 		}
 	}
@@ -128,9 +128,9 @@ func (m *Manager) Revoke(name string) error {
 func (m *Manager) Restore(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i := range m.students {
-		if m.students[i].Name == name {
-			m.students[i].Active = true
+	for i := range m.users {
+		if m.users[i].Name == name {
+			m.users[i].Active = true
 			return m.Save()
 		}
 	}
@@ -143,26 +143,26 @@ func (m *Manager) Restore(name string) error {
 // low on subsequent requests.
 //
 // Returns a defensive copy so callers can't race on slice reallocation.
-func (m *Manager) FindByToken(token string) *Student {
+func (m *Manager) FindByToken(token string) *User {
 	m.mu.RLock()
 	var (
-		matched       Student
+		matched       User
 		matchName     string
 		matchedStored string
 		upgrade       bool
 		found         bool
 	)
-	for i := range m.students {
-		if !m.students[i].Active {
+	for i := range m.users {
+		if !m.users[i].Active {
 			continue
 		}
-		stored := m.students[i].Token
+		stored := m.users[i].Token
 		ok, needUpgrade := VerifyToken(token, stored)
 		if !ok {
 			continue
 		}
-		matched = m.students[i]
-		matchName = m.students[i].Name
+		matched = m.users[i]
+		matchName = m.users[i].Name
 		matchedStored = stored
 		upgrade = needUpgrade
 		found = true
@@ -189,27 +189,27 @@ func (m *Manager) upgradeToBcrypt(name, expectedOld, plaintext string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for i := range m.students {
-		if m.students[i].Name != name {
+	for i := range m.users {
+		if m.users[i].Name != name {
 			continue
 		}
-		if m.students[i].Token != expectedOld {
+		if m.users[i].Token != expectedOld {
 			return // already upgraded, or user was revoked and re-created
 		}
-		m.students[i].Token = newHash
+		m.users[i].Token = newHash
 		if err := m.Save(); err != nil {
 			fmt.Fprintf(os.Stderr, "[proxy] warning: bcrypt upgrade for %s not persisted: %v\n", name, err)
-			m.students[i].Token = expectedOld // keep memory in sync with disk
+			m.users[i].Token = expectedOld // keep memory in sync with disk
 		}
 		return
 	}
 }
 
 // List returns a copy of all users.
-func (m *Manager) List() []Student {
+func (m *Manager) List() []User {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	result := make([]Student, len(m.students))
-	copy(result, m.students)
+	result := make([]User, len(m.users))
+	copy(result, m.users)
 	return result
 }

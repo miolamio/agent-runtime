@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/miolamio/agent-runtime/internal/proxy/students"
+	"github.com/miolamio/agent-runtime/internal/proxy/users"
 )
 
 func modelIDs(t *testing.T, h *Handler, tok string) []string {
@@ -39,7 +39,7 @@ func modelIDs(t *testing.T, h *Handler, tok string) []string {
 
 func TestReloadConfig_SwapsProviders(t *testing.T) {
 	dir := t.TempDir()
-	mgr := students.New(filepath.Join(dir, "students.json"))
+	mgr := users.New(filepath.Join(dir, "users.json"))
 	tok, _ := mgr.Add("U")
 
 	oldCfg := &ProxyConfig{
@@ -81,7 +81,7 @@ func TestReloadConfig_SwapsRPM(t *testing.T) {
 	defer upstream.Close()
 
 	dir := t.TempDir()
-	mgr := students.New(filepath.Join(dir, "students.json"))
+	mgr := users.New(filepath.Join(dir, "users.json"))
 	tok, _ := mgr.Add("U")
 
 	cfg := &ProxyConfig{

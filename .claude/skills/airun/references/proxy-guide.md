@@ -16,7 +16,7 @@ User (sk-ai-token) → Proxy (auth + rate limit) → Z.AI / Kimi / MiniMax
 airun proxy init
 ```
 
-Creates `~/proxy.yaml` and `~/students.json`.
+Creates `~/.airun/proxy.yaml` and `~/.airun/users.json`.
 
 ### 2. Configure providers
 
@@ -137,4 +137,4 @@ Tokens are 32 random hex chars prefixed with `sk-ai-`:
 sk-ai-a3f5c8d2e1b9f4a6c7e8d9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8
 ```
 
-Stored in `~/students.json` with name, active status, and creation timestamp.
+Stored in `~/.airun/users.json` with name, active status, and creation timestamp.

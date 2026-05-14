@@ -73,7 +73,7 @@ func TestForwardRequest_AuthorizationStripped(t *testing.T) {
 	defer upstream.Close()
 
 	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{}`))
-	req.Header.Set("Authorization", "Bearer sk-ai-student-token-should-not-leak")
+	req.Header.Set("Authorization", "Bearer sk-ai-user-token-should-not-leak")
 	req.Header.Set("x-api-key", "original-key")
 	rec := httptest.NewRecorder()
 

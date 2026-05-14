@@ -13,36 +13,36 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/miolamio/agent-runtime/internal/proxy/students"
+	"github.com/miolamio/agent-runtime/internal/proxy/users"
 )
 
 type contextKey string
 
-const studentContextKey contextKey = "student"
+const userContextKey contextKey = "user"
 
-func withStudent(r *http.Request, s *students.Student) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), studentContextKey, s))
+func withUser(r *http.Request, u *users.User) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), userContextKey, u))
 }
 
-func studentFromContext(r *http.Request) *students.Student {
-	s, _ := r.Context().Value(studentContextKey).(*students.Student)
-	return s
+func userFromContext(r *http.Request) *users.User {
+	u, _ := r.Context().Value(userContextKey).(*users.User)
+	return u
 }
 
 // Handler is the main HTTP handler for the proxy.
 type Handler struct {
-	config   atomic.Pointer[ProxyConfig]
-	students *students.Manager
-	limiter  *RateLimiter
-	mux      *http.ServeMux
+	config  atomic.Pointer[ProxyConfig]
+	users   *users.Manager
+	limiter *RateLimiter
+	mux     *http.ServeMux
 }
 
 // NewHandler creates a proxy handler.
-func NewHandler(cfg *ProxyConfig, mgr *students.Manager) *Handler {
+func NewHandler(cfg *ProxyConfig, mgr *users.Manager) *Handler {
 	h := &Handler{
-		students: mgr,
-		limiter:  NewRateLimiter(cfg.RPM),
-		mux:      http.NewServeMux(),
+		users:   mgr,
+		limiter: NewRateLimiter(cfg.RPM),
+		mux:     http.NewServeMux(),
 	}
 	h.config.Store(cfg)
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
@@ -70,16 +70,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusUnauthorized, "missing x-api-key or Authorization header")
 		return
 	}
-	student := h.students.FindByToken(token)
-	if student == nil || !student.Active {
+	u := h.users.FindByToken(token)
+	if u == nil || !u.Active {
 		jsonError(w, http.StatusUnauthorized, "invalid or revoked token")
 		return
 	}
-	if !h.limiter.Allow(student.Name) {
+	if !h.limiter.Allow(u.Name) {
 		jsonError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
-	r = withStudent(r, student)
+	r = withUser(r, u)
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -139,10 +139,10 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	r.URL.Path = "/v1/messages"
 
-	student := studentFromContext(r)
+	u := userFromContext(r)
 	name := "unknown"
-	if student != nil {
-		name = student.Name
+	if u != nil {
+		name = u.Name
 	}
 
 	token := r.Header.Get("x-api-key")

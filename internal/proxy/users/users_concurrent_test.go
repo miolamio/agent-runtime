@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 
 func TestConcurrentAddAndFind(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	os.WriteFile(path, []byte("[]"), 0600)
 	mgr := New(path)
 
@@ -46,13 +46,13 @@ func TestConcurrentAddAndFind(t *testing.T) {
 
 	// Verify all tokens resolve correctly
 	for r := range results {
-		s := mgr.FindByToken(r.token)
-		if s == nil {
+		u := mgr.FindByToken(r.token)
+		if u == nil {
 			t.Errorf("FindByToken nil for %s", r.name)
 			continue
 		}
-		if s.Name != r.name {
-			t.Errorf("FindByToken(%s) = %q, want %q", r.token[:8], s.Name, r.name)
+		if u.Name != r.name {
+			t.Errorf("FindByToken(%s) = %q, want %q", r.token[:8], u.Name, r.name)
 		}
 	}
 

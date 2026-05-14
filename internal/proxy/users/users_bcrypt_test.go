@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 // Newly-added users must be stored with a bcrypt hash, never SHA-256.
 func TestAdd_PersistsBcryptHash(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 	mgr := New(path)
 
 	tok, err := mgr.Add("alice")
@@ -24,7 +24,7 @@ func TestAdd_PersistsBcryptHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	var got []Student
+	var got []User
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -39,14 +39,14 @@ func TestAdd_PersistsBcryptHash(t *testing.T) {
 	}
 }
 
-// A legacy students.json containing SHA-256 hashes must continue to authenticate
+// A legacy users.json containing SHA-256 hashes must continue to authenticate
 // so existing v0.6.0/v0.6.1 installations work after the bcrypt upgrade.
 func TestFindByToken_BackwardCompatSHA256(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 
 	tok := "sk-ai-legacy-token-abc"
-	legacy := []Student{
+	legacy := []User{
 		{
 			Name:      "bob",
 			Token:     HashToken(tok),
@@ -60,12 +60,12 @@ func TestFindByToken_BackwardCompatSHA256(t *testing.T) {
 	}
 
 	mgr := New(path)
-	s := mgr.FindByToken(tok)
-	if s == nil {
+	u := mgr.FindByToken(tok)
+	if u == nil {
 		t.Fatal("legacy SHA-256 token did not authenticate")
 	}
-	if s.Name != "bob" {
-		t.Errorf("got name %q, want bob", s.Name)
+	if u.Name != "bob" {
+		t.Errorf("got name %q, want bob", u.Name)
 	}
 }
 
@@ -74,10 +74,10 @@ func TestFindByToken_BackwardCompatSHA256(t *testing.T) {
 // confirms the upgrade took effect.
 func TestFindByToken_TransparentBcryptUpgrade(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 
 	tok := "sk-ai-to-upgrade-xyz"
-	initial := []Student{{
+	initial := []User{{
 		Name: "carol", Token: HashToken(tok), Active: true, CreatedAt: time.Now().UTC(),
 	}}
 	raw, _ := json.MarshalIndent(initial, "", "  ")
@@ -86,7 +86,7 @@ func TestFindByToken_TransparentBcryptUpgrade(t *testing.T) {
 	}
 
 	mgr := New(path)
-	if s := mgr.FindByToken(tok); s == nil {
+	if u := mgr.FindByToken(tok); u == nil {
 		t.Fatal("initial auth failed")
 	}
 
@@ -96,7 +96,7 @@ func TestFindByToken_TransparentBcryptUpgrade(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		var got []Student
+		var got []User
 		if err := json.Unmarshal(data, &got); err != nil {
 			return false
 		}
@@ -105,19 +105,19 @@ func TestFindByToken_TransparentBcryptUpgrade(t *testing.T) {
 
 	// A fresh Manager reading the upgraded file still authenticates.
 	mgr2 := New(path)
-	if s := mgr2.FindByToken(tok); s == nil {
+	if u := mgr2.FindByToken(tok); u == nil {
 		t.Fatal("auth failed after bcrypt upgrade persisted")
 	}
 }
 
 // Concurrent auth requests for the same legacy token must not corrupt
-// students.json — exactly one upgrade wins, the rest no-op.
+// users.json — exactly one upgrade wins, the rest no-op.
 func TestFindByToken_UpgradeIsConcurrencySafe(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 
 	tok := "sk-ai-concurrent-upgrade"
-	initial := []Student{{
+	initial := []User{{
 		Name: "dave", Token: HashToken(tok), Active: true, CreatedAt: time.Now().UTC(),
 	}}
 	raw, _ := json.MarshalIndent(initial, "", "  ")
@@ -132,7 +132,7 @@ func TestFindByToken_UpgradeIsConcurrencySafe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if s := mgr.FindByToken(tok); s == nil {
+			if u := mgr.FindByToken(tok); u == nil {
 				t.Error("concurrent auth failed")
 			}
 		}()
@@ -145,7 +145,7 @@ func TestFindByToken_UpgradeIsConcurrencySafe(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		var got []Student
+		var got []User
 		if err := json.Unmarshal(data, &got); err != nil {
 			return false
 		}
@@ -154,7 +154,7 @@ func TestFindByToken_UpgradeIsConcurrencySafe(t *testing.T) {
 
 	// A fresh reader still authenticates.
 	mgr2 := New(path)
-	if s := mgr2.FindByToken(tok); s == nil {
+	if u := mgr2.FindByToken(tok); u == nil {
 		t.Fatal("auth broke after concurrent upgrade")
 	}
 }
@@ -163,10 +163,10 @@ func TestFindByToken_UpgradeIsConcurrencySafe(t *testing.T) {
 // plaintext never round-trips through a less-secure format).
 func TestLoad_PlaintextMigratesToBcrypt(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "students.json")
+	path := filepath.Join(dir, "users.json")
 
 	plaintext := "sk-ai-needs-migration"
-	legacy := []Student{{Name: "eve", Token: plaintext, Active: true, CreatedAt: time.Now().UTC()}}
+	legacy := []User{{Name: "eve", Token: plaintext, Active: true, CreatedAt: time.Now().UTC()}}
 	raw, _ := json.MarshalIndent(legacy, "", "  ")
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
@@ -175,13 +175,13 @@ func TestLoad_PlaintextMigratesToBcrypt(t *testing.T) {
 	mgr := New(path)
 
 	// In-memory state: not plaintext, is bcrypt.
-	if s := mgr.FindByToken(plaintext); s == nil {
+	if u := mgr.FindByToken(plaintext); u == nil {
 		t.Fatal("plaintext→bcrypt migration broke auth")
 	}
 
 	// On-disk state: not plaintext, is bcrypt.
 	data, _ := os.ReadFile(path)
-	var got []Student
+	var got []User
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}

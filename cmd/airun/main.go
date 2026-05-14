@@ -195,7 +195,7 @@ func main() {
 			fmt.Println("Usage: airun proxy <init|serve|user|connect|disconnect> [args]")
 			os.Exit(1)
 		}
-		configPath, studentsPath := proxy.DefaultPaths()
+		configPath, usersPath := proxy.DefaultPaths()
 		subcmd := os.Args[2]
 		switch subcmd {
 		case "connect":
@@ -220,7 +220,7 @@ func main() {
 			}
 			return
 		case "init":
-			if err := proxy.Init(configPath, studentsPath); err != nil {
+			if err := proxy.Init(configPath, usersPath); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -229,7 +229,7 @@ func main() {
 			if len(os.Args) > 3 && os.Args[3] == "--port" && len(os.Args) > 4 {
 				listen = ":" + os.Args[4]
 			}
-			if err := proxy.Serve(configPath, studentsPath, listen); err != nil {
+			if err := proxy.Serve(configPath, usersPath, listen); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -250,29 +250,29 @@ func main() {
 					fmt.Fprintln(os.Stderr, "Usage: airun proxy user add <name>")
 					os.Exit(1)
 				}
-				perr = proxy.StudentAdd(studentsPath, arg)
+				perr = proxy.UserAdd(usersPath, arg)
 			case "list", "ls":
-				perr = proxy.StudentList(studentsPath)
+				perr = proxy.UserList(usersPath)
 			case "revoke":
 				if arg == "" {
 					fmt.Fprintln(os.Stderr, "Usage: airun proxy user revoke <name>")
 					os.Exit(1)
 				}
-				perr = proxy.StudentRevoke(studentsPath, arg)
+				perr = proxy.UserRevoke(usersPath, arg)
 			case "restore":
 				if arg == "" {
 					fmt.Fprintln(os.Stderr, "Usage: airun proxy user restore <name>")
 					os.Exit(1)
 				}
-				perr = proxy.StudentRestore(studentsPath, arg)
+				perr = proxy.UserRestore(usersPath, arg)
 			case "import":
 				if arg == "" {
 					fmt.Fprintln(os.Stderr, "Usage: airun proxy user import <file>")
 					os.Exit(1)
 				}
-				perr = proxy.StudentImport(studentsPath, arg)
+				perr = proxy.UserImport(usersPath, arg)
 			case "export":
-				perr = proxy.StudentExport(studentsPath)
+				perr = proxy.UserExport(usersPath)
 			default:
 				fmt.Fprintf(os.Stderr, "Unknown user action: %s\n", action)
 				os.Exit(1)

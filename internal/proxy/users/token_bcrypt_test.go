@@ -1,4 +1,4 @@
-package students
+package users
 
 import (
 	"os"
