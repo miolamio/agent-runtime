@@ -169,7 +169,7 @@ else
 fi
 
 # --- Test 4: Messages endpoint ---
-TEST_MODEL="${MODEL:-glm-5.1}"
+TEST_MODEL="${MODEL:-glm-5.2}"
 echo -n "[4/4] POST /v1/messages (model: $TEST_MODEL) ... "
 RESP=$(curl -s -w "\n%{http_code}" --max-time 60 "$URL/v1/messages" \
   -H "x-api-key: $TOKEN" \

@@ -41,7 +41,7 @@ airun keys remove minimax               # remove provider
 airun keys test                         # validate all keys
 airun keys test kimi                    # validate specific key
 airun keys default kimi                 # change default provider
-airun keys model glm-5.1               # change default model
+airun keys model glm-5.2               # change default model
 ```
 
 ## Proxy (Admin)
@@ -96,7 +96,7 @@ airun --version                         # show version
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--provider` | | Provider: z/zai, m/mm/minimax, k/kimi, r/remote |
-| `--model` | `-m` | Model override (e.g. glm-5.1, kimi-k2.5) |
+| `--model` | `-m` | Model override (e.g. glm-5.2, kimi-k2.5) |
 | `--profile` | `-p` | Profile name (dev, text, default) |
 | `--output` | | Export workspace to directory after run |
 | `--no-state` | | Disable persistent state volume |
@@ -116,7 +116,7 @@ ARUN_WORKSPACE=~/src                    # default mount directory
 
 ZAI_API_KEY=...                         # Z.AI
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
-ZAI_MODEL=glm-5.1
+ZAI_MODEL=glm-5.2
 
 MINIMAX_API_KEY=...                     # MiniMax
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
@@ -128,8 +128,8 @@ KIMI_MODEL=kimi-k2.5
 
 REMOTE_BASE_URL=https://proxy.example.com  # Remote proxy
 REMOTE_API_KEY=sk-ai-...
-REMOTE_MODELS=glm-5.1,kimi-k2.5
-REMOTE_DEFAULT_MODEL=glm-5.1
+REMOTE_MODELS=glm-5.2,kimi-k2.5
+REMOTE_DEFAULT_MODEL=glm-5.2
 
 API_TIMEOUT_MS=3000000                  # 50 minutes
 ```

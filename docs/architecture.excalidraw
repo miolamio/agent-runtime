@@ -566,8 +566,8 @@
     {
       "type": "text", "id": "zai_t",
       "x": 1090, "y": 180, "width": 135, "height": 40,
-      "text": "Z.AI\nGLM-5.1 / 4.7",
-      "originalText": "Z.AI\nGLM-5.1 / 4.7",
+      "text": "Z.AI\nGLM-5.2 / 4.7",
+      "originalText": "Z.AI\nGLM-5.2 / 4.7",
       "fontSize": 14, "fontFamily": 3,
       "textAlign": "center", "verticalAlign": "middle",
       "strokeColor": "#374151", "backgroundColor": "transparent",

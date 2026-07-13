@@ -103,9 +103,9 @@ echo "$MODELS" | while IFS= read -r m; do
     echo "  [x] $m"
 done
 
-# Prefer glm-5.1 if available, otherwise first model
+# Prefer glm-5.2 if available, otherwise first model
 DEFAULT_MODEL=$(echo "$MODELS" | head -1)
-PREFERRED=$(echo "$MODELS" | grep -x "glm-5.1" || true)
+PREFERRED=$(echo "$MODELS" | grep -x "glm-5.2" || true)
 if [ -n "$PREFERRED" ]; then
     DEFAULT_MODEL="$PREFERRED"
 fi

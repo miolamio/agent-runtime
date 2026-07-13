@@ -105,7 +105,7 @@ airun shell
 
 | Provider | Sign up | What you get |
 |----------|---------|--------------|
-| **Z.AI** | [z.ai](https://z.ai) | GLM-5.1, GLM-4.7 models via `api.z.ai/api/anthropic` |
+| **Z.AI** | [z.ai](https://z.ai) | GLM-5.2, GLM-4.7 models via `api.z.ai/api/anthropic` |
 | **MiniMax** | [minimax.io](https://minimax.io) | MiniMax-M2.7 model via `api.minimax.io/anthropic` |
 | **Kimi** | [kimi.com](https://www.kimi.com/code/docs/en/) | Kimi K2.5 model via `api.kimi.com/coding/` |
 
@@ -280,7 +280,7 @@ This creates the container, runs the task, copies `/workspace` to `./results`, a
 
 | Alias | Provider | Endpoint | Default model | Context |
 |-------|----------|----------|---------------|---------|
-| `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-5.1 | — |
+| `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-5.2 | — |
 | `m`, `mm`, `minimax` | MiniMax | `api.minimax.io/anthropic` | MiniMax-M2.7 | — |
 | `k`, `kimi` | Kimi (Moonshot AI) | `api.kimi.com/coding/` | Kimi K2.5 | 256K |
 | `r`, `remote` | Remote proxy | configurable | configurable | — |
@@ -348,7 +348,7 @@ providers:
     base_url: "https://api.z.ai/api/anthropic"
     api_key: "your-zai-key"
     models:
-      - glm-5.1
+      - glm-5.2
       - glm-4.7
       - GLM-4.5-Air
   minimax:
@@ -450,7 +450,7 @@ curl -s https://proxy.example.com/v1/models -H "x-api-key: <any-valid-token>"
 Expected output from systemd:
 
 ```
-[proxy] Providers: 3 (5 models: glm-5.1, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
+[proxy] Providers: 3 (5 models: glm-5.2, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
 [proxy] Users: 15 active
 [proxy] Rate limit: unlimited
 ```
@@ -491,7 +491,7 @@ airun keys add remote
 #   Proxy URL: https://proxy.example.com
 #   API key: sk-ai-a1b2c3d4...
 #   Fetching models... OK (5 models)
-#   Default model: glm-5.1
+#   Default model: glm-5.2
 
 airun keys default remote
 airun shell    # all requests go through the proxy

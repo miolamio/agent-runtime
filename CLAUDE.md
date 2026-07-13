@@ -40,7 +40,7 @@ docker build --build-arg CLAUDE_BUST_CACHE=$(date +%s) -t agent-runtime:latest d
 
 # e2e tests — bash harness, see test/e2e/README.md
 test/e2e/run-all.sh                     # offline-safe (uses docker shim)
-test/e2e/run-all.sh --with-network      # include real provider calls (GLM-5.1 only by default)
+test/e2e/run-all.sh --with-network      # include real provider calls (GLM-5.2 only by default)
 test/e2e/run-all.sh --group 90-proxy    # one group
 test/e2e/run-all.sh --only cli/version  # one file by substring
 ```
@@ -163,7 +163,7 @@ type ProxyConfig struct {
   - `harness.sh` (sets `set -euo pipefail`, `on_exit` cleanups, assertions)
   - `env.sh`, `home.sh` (HOME isolation — tests must not touch real `~/.airun/` or `~/.claude/`)
   - `docker.sh` (docker shim for offline runs)
-  - `skip.sh` — `skip_unless_network` (gates real API calls behind `--with-network`); `skip_unless_non_glm` (containerized provider tests run only against `zai/glm-5.1` unless `--include-non-glm`)
+  - `skip.sh` — `skip_unless_network` (gates real API calls behind `--with-network`); `skip_unless_non_glm` (containerized provider tests run only against `zai/glm-5.2` unless `--include-non-glm`)
   - Per-test logs land in `test/e2e/.logs/<group>/<test>.log` (gitignored); TAP summary in stdout.
 
 ## Skills Source Layout

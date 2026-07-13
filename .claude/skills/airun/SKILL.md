@@ -14,7 +14,7 @@ CLI tool that runs Claude Code agents inside Docker containers with multi-provid
 airun "prompt"
 airun -p dev "prompt"
 airun --provider kimi "prompt"
-airun --model glm-5.1 "prompt"
+airun --model glm-5.2 "prompt"
 
 # Interactive session
 airun shell
@@ -56,7 +56,7 @@ airun history
 
 | Provider | Aliases | Default Model | Base URL |
 |----------|---------|---------------|----------|
-| Z.AI | z, zai | glm-5.1 | api.z.ai/api/anthropic |
+| Z.AI | z, zai | glm-5.2 | api.z.ai/api/anthropic |
 | MiniMax | m, mm, minimax | MiniMax-M2.7 | api.minimax.io/anthropic |
 | Kimi | k, kimi | kimi-k2.5 | api.kimi.com/coding/ |
 | Remote | r, remote | configurable | configurable |
