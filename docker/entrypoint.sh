@@ -52,9 +52,11 @@ fi
 
 # ── Register plugin marketplaces on first run ──
 # claude CLI stores registrations in ~/.claude/settings.json under
-# extraKnownMarketplaces. Pre-cloned local paths are accepted for
-# miolamio/anthropic-agent-skills; the "claude-plugins-official" name is
-# reserved and must be registered via the anthropics GitHub source.
+# extraKnownMarketplaces. The "claude-plugins-official" and
+# "anthropic-agent-skills" names are reserved: Claude Code >=2.1.x only
+# accepts them from their anthropics GitHub sources and rejects local
+# clone paths. Only "miolamio-agent-skills" registers from its pre-cloned
+# local path.
 #
 # A sentinel avoids re-running on warm starts when the state volume
 # persists ~/.claude/.
@@ -68,10 +70,10 @@ if [ ! -f "$SENTINEL" ]; then
         gosu "$_USER" claude plugin marketplace add "${PLUGINS_DIR}/marketplaces/miolamio-agent-skills" >/dev/null 2>&1 || \
             echo "[airun] warning: failed to register miolamio-agent-skills" >&2
     fi
-    if [ -d "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills" ]; then
-        gosu "$_USER" claude plugin marketplace add "${PLUGINS_DIR}/marketplaces/anthropic-agent-skills" >/dev/null 2>&1 || \
-            echo "[airun] warning: failed to register anthropic-agent-skills" >&2
-    fi
+    # anthropic-agent-skills is a reserved name — Claude Code >=2.1.x only
+    # accepts it from the anthropics GitHub source, not a local clone.
+    gosu "$_USER" claude plugin marketplace add anthropics/skills >/dev/null 2>&1 || \
+        echo "[airun] warning: failed to register anthropic-agent-skills" >&2
 
     # Install base plugins (superpowers, context7, skill-creator).
     for _base in context7@claude-plugins-official skill-creator@claude-plugins-official superpowers@claude-plugins-official; do
