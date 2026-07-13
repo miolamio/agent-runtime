@@ -5,7 +5,7 @@
 FROM buildpack-deps:bookworm-scm
 
 ARG USERNAME=claude
-ARG GIT_DELTA_VERSION=0.18.2
+ARG GIT_DELTA_VERSION=0.19.2
 ARG TZ=UTC
 # Pass --build-arg CLAUDE_BUST_CACHE=$(date +%s) to force Claude Code reinstall
 ARG CLAUDE_BUST_CACHE=1
@@ -65,7 +65,7 @@ RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" && curl -fsSL "https://claude.ai/ins
 USER root
 
 # ── Node.js LTS (for Playwright and skill scripts) ──
-ARG NODE_MAJOR=22
+ARG NODE_MAJOR=24
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
