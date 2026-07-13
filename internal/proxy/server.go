@@ -100,7 +100,7 @@ providers:
   #   base_url: "https://api.z.ai/api/anthropic"
   #   api_key: "YOUR_KEY"
   #   models:
-  #     - glm-5.1
+  #     - glm-5.2
   #     - glm-4.7
   #     - GLM-4.5-Air
   # minimax:

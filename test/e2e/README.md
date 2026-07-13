@@ -10,7 +10,7 @@ test/e2e/run-all.sh                     # everything that's safe offline
 test/e2e/run-all.sh --group 00-prereq   # one group
 test/e2e/run-all.sh --only cli/version  # single file by substring
 test/e2e/run-all.sh --with-network      # include tests that hit real APIs
-test/e2e/run-all.sh --include-non-glm   # include non-zai/glm-5.1 providers
+test/e2e/run-all.sh --include-non-glm   # include non-zai/glm-5.2 providers
 test/e2e/run-all.sh --fast              # bail on first failure
 ```
 
@@ -52,11 +52,11 @@ Tests that make real API calls must call `skip_unless_network` first. They
 only run with `--with-network`, so normal dev loops don't burn provider
 quotas.
 
-### GLM-5.1 only
+### GLM-5.2 only
 
-Container runs targeting providers other than `zai/glm-5.1` must call
+Container runs targeting providers other than `zai/glm-5.2` must call
 `skip_unless_non_glm`. The project policy is to exercise containers only
-against GLM-5.1 unless opted into explicitly with `--include-non-glm`.
+against GLM-5.2 unless opted into explicitly with `--include-non-glm`.
 
 ## Groups
 
@@ -65,7 +65,7 @@ against GLM-5.1 unless opted into explicitly with `--include-non-glm`.
 | 00-prereq | docker daemon, image built, config present |
 | 10-cli | `--version`, `--help`, exit codes, unknown flags |
 | 20-keys | `airun keys list|add|remove|default` |
-| 30-run-basic | `airun "prompt"` against GLM-5.1 (requires --with-network) |
+| 30-run-basic | `airun "prompt"` against GLM-5.2 (requires --with-network) |
 | 40-profiles | default/dev/research/ceo/text mounts and env |
 | 50-workspace | snapshot vs bind, export dir, missing workspace |
 | 60-state | volume creation, persistence, --no-state, per-profile volumes |

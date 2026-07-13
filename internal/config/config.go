@@ -72,7 +72,7 @@ func Load() (*Config, error) {
 		Mode:           "snapshot",
 		Provider:       "zai",
 		ZaiBaseURL:     "https://api.z.ai/api/anthropic",
-		ZaiModel:       "glm-5.1",
+		ZaiModel:       "glm-5.2",
 		ZaiHaikuModel:  "GLM-4.5-Air",
 		MinimaxBaseURL: "https://api.minimax.io/anthropic",
 		MinimaxModel:   "MiniMax-M2.7",

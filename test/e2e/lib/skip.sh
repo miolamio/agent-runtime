@@ -43,7 +43,7 @@ skip_unless_network() {
 }
 
 # skip_unless_non_glm: tests for non-default providers. Container tests outside
-# zai/glm-5.1 are opt-in per project feedback (GLM-5.1 is the sanctioned model).
+# zai/glm-5.2 are opt-in per project feedback (GLM-5.2 is the sanctioned model).
 skip_unless_non_glm() {
     if [[ "${E2E_INCLUDE_NON_GLM:-0}" != "1" ]]; then
         skip "non-GLM provider test — opt in with --include-non-glm"

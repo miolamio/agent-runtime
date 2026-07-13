@@ -3,7 +3,7 @@
 #
 # Resolution order:
 #   1. $AIRUN_TEST_ENV (explicit override, usually pointed at a throwaway)
-#   2. ~/.airun/config.env  (the user's real prod config — honour GLM-5.1-only)
+#   2. ~/.airun/config.env  (the user's real prod config — honour GLM-5.2-only)
 #
 # Source with: `source "${E2E_LIB}/env.sh"`.
 # Exports every KEY=VAL from the resolved file into the current environment,

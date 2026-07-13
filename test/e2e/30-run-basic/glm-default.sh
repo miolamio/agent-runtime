@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full-stack smoke test: bring up the real agent-runtime container against
-# the user's real ZAI_API_KEY, run one short prompt on GLM-5.1, expect exit 0.
+# the user's real ZAI_API_KEY, run one short prompt on GLM-5.2, expect exit 0.
 #
 # This is the ONLY container test we run by default; it's network-gated and
 # --no-state so it won't mutate the user's state volume. Anything more
@@ -21,11 +21,11 @@ skip_if_no_zai_key
 # gives us ephemeral isolation so no state volume is touched.
 out=$("$AIRUN_BIN" --no-state "Reply with exactly the word: OK" 2>&1)
 ec=$?
-assert_exit_code "0" "$ec" "airun GLM-5.1 run exits 0"
+assert_exit_code "0" "$ec" "airun GLM-5.2 run exits 0"
 # Model output can be verbose and wrapped; we just check that the container
-# reported provider=zai and model=glm-5.1 somewhere in its banner so we know
+# reported provider=zai and model=glm-5.2 somewhere in its banner so we know
 # routing worked.
 assert_contains "$out" "provider=zai"   "airun banner reports provider=zai"
-assert_contains "$out" "model=glm-5.1"  "airun banner reports model=glm-5.1"
+assert_contains "$out" "model=glm-5.2"  "airun banner reports model=glm-5.2"
 # The container emits a "[airun] done in …" summary on success.
 assert_contains "$out" "done in"        "airun printed the done-in summary"

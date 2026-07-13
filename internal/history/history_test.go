@@ -13,7 +13,7 @@ func TestSave(t *testing.T) {
 	runDir := filepath.Join(dir, "test-run")
 	rec := RunRecord{
 		Timestamp: "2026-04-07_12-00-00", Profile: "dev", Provider: "zai",
-		Model: "glm-5.1", Prompt: "test prompt", DurationMs: 1500,
+		Model: "glm-5.2", Prompt: "test prompt", DurationMs: 1500,
 		ExitCode: 0, RunDir: runDir,
 	}
 	if err := Save(rec, "test output"); err != nil {

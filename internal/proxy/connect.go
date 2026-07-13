@@ -53,10 +53,10 @@ func Connect(proxyURL, token string) error {
 		fmt.Printf("  [x] %s\n", m)
 	}
 
-	// Pick default model — prefer glm-5.1 if available
+	// Pick default model — prefer glm-5.2 if available
 	defaultModel := models[0]
 	for _, m := range models {
-		if m == "glm-5.1" {
+		if m == "glm-5.2" {
 			defaultModel = m
 			break
 		}

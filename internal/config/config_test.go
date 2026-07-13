@@ -27,12 +27,12 @@ func TestNormalizeProvider(t *testing.T) {
 func TestContainerEnvWithModel_ZAI(t *testing.T) {
 	cfg := &Config{
 		ZaiBaseURL: "https://api.z.ai/api/anthropic", ZaiAPIKey: "sk-test",
-		ZaiModel: "glm-5.1", APITimeout: "3000000", DisableTraffic: "1",
+		ZaiModel: "glm-5.2", APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("zai", "")
 	assertEnv(t, env, "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic")
 	assertEnv(t, env, "ANTHROPIC_AUTH_TOKEN=sk-test")
-	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.1")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.2")
 }
 
 func TestContainerEnvWithModel_Kimi(t *testing.T) {
@@ -57,7 +57,7 @@ func TestContainerEnvWithModel_Anthropic(t *testing.T) {
 func TestContainerEnvWithModel_Override(t *testing.T) {
 	cfg := &Config{
 		ZaiBaseURL: "https://api.z.ai/api/anthropic", ZaiAPIKey: "sk-test",
-		ZaiModel: "glm-5.1", APITimeout: "3000000", DisableTraffic: "1",
+		ZaiModel: "glm-5.2", APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("zai", "glm-4.7")
 	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7")

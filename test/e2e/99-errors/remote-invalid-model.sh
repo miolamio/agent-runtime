@@ -15,8 +15,8 @@ cat >> "$th/.airun/config.env" <<'EOF'
 ARUN_PROVIDER=remote
 REMOTE_BASE_URL=http://127.0.0.1:1
 REMOTE_API_KEY=sk-ai-fake
-REMOTE_MODELS=glm-5.1,kimi-k2.5
-REMOTE_DEFAULT_MODEL=glm-5.1
+REMOTE_MODELS=glm-5.2,kimi-k2.5
+REMOTE_DEFAULT_MODEL=glm-5.2
 EOF
 
 set +e
@@ -26,7 +26,7 @@ ec=$?
 set -e
 assert_exit_code "1" "$ec" "unknown remote model fails"
 assert_contains "$out" "not available on remote proxy" "helpful error text"
-assert_contains "$out" "glm-5.1,kimi-k2.5"             "error lists available models"
+assert_contains "$out" "glm-5.2,kimi-k2.5"             "error lists available models"
 
 if [[ -s "$DOCKER_SHIM_LOG" ]]; then
     die "docker was invoked despite invalid-model rejection:\n$(cat "$DOCKER_SHIM_LOG")"

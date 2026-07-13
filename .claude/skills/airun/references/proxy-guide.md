@@ -32,7 +32,7 @@ providers:
     base_url: "https://api.z.ai/api/anthropic"
     api_key: "YOUR_ZAI_KEY"
     models:
-      - glm-5.1
+      - glm-5.2
       - glm-4.7
       - GLM-4.5-Air
   kimi:
@@ -107,7 +107,7 @@ Edit `~/.claude/settings.json`, add to the `env` section:
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "sk-ai-your-token",
     "ANTHROPIC_BASE_URL": "http://proxy-server:8080",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.1",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2",
     "API_TIMEOUT_MS": "3000000"
   }
 }
