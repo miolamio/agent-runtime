@@ -74,27 +74,24 @@ MAS_SHA=$(git -C "${MKT_DIR}/miolamio-agent-skills" rev-parse --short=12 HEAD)
 mkdir -p "${HOME_DIR}/.claude/skills"
 cp -r "${MKT_DIR}/miolamio-agent-skills/skills/"* "${HOME_DIR}/.claude/skills/" 2>/dev/null || true
 
-# ── 6. Clone anthropic-agent-skills marketplace ──
-# Carries bundle plugins like example-skills (webapp-testing, internal-comms,
-# doc-coauthoring, …) and document-skills (xlsx/docx/pptx/pdf).
-log "Cloning anthropic-agent-skills marketplace..."
-git clone --depth 1 https://github.com/anthropics/skills.git \
-    "${MKT_DIR}/anthropic-agent-skills"
-AAS_SHA=$(git -C "${MKT_DIR}/anthropic-agent-skills" rev-parse --short=12 HEAD)
+# NOTE: anthropic-agent-skills is deliberately NOT cloned here. Claude Code
+# >=2.1.x reserves that marketplace name and only accepts it from the anthropics
+# GitHub source, so entrypoint.sh registers it at runtime with
+# `claude plugin marketplace add anthropics/skills`. A build-time clone would be
+# dead weight the CLI never reads.
 
-# ── 7. Save metadata for entrypoint.sh to generate JSON configs ──
+# ── 6. Save metadata for entrypoint.sh to generate JSON configs ──
 cat > "${PLUGINS_DIR}/.seed-metadata.json" <<METAEOF
 {
   "cpo_sha": "${CPO_SHA}",
   "sp_ver": "${SP_VER}",
   "sp_sha": "${SP_SHA}",
   "mas_sha": "${MAS_SHA}",
-  "aas_sha": "${AAS_SHA}",
   "seeded_at": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 }
 METAEOF
 
-# ── 8. Fix ownership ──
+# ── 7. Fix ownership ──
 chown -R "${USERNAME}:${USERNAME}" "${PLUGINS_DIR}" "${HOME_DIR}/.claude/skills"
 
-log "Done: context7, skill-creator, superpowers + miolamio-agent-skills + anthropic-agent-skills"
+log "Done: context7, skill-creator, superpowers + miolamio-agent-skills (anthropic-agent-skills registers at runtime)"
