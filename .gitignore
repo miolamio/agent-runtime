@@ -32,17 +32,33 @@ docker-compose.override.yml
 __pycache__/
 *.pyc
 
-# Development docs (not part of the distributed project)
-/.development/
-/docs/plans/
-/CLAUDE.md
+# Development docs — internal working notes, not part of the distributed
+# project. Changelogs are the exception: they are the published release notes.
+# Use the dir/* form (not dir/) so the negation below can re-include them.
+/.development/*
+!/.development/changelog-*.md
 
-# Skills library (separate from agent-runtime)
-/.claude/skills/
+# Agent-generated planning artifacts. These are one-shot execution plans and
+# design specs, already carried out; they carry local absolute paths and stale
+# package names, so they do not belong in a public repo.
+/docs/plans/
+/docs/superpowers/
+
+# Skills library (separate from agent-runtime). The airun skill itself ships
+# with the project, so it is re-included.
+/.claude/skills/*
+!/.claude/skills/airun/
+
+# Local Claude Code state. Do not rely on a machine's global gitignore for
+# this — it holds per-machine paths and permission grants.
+.claude/settings.local.json
+.claude/*.local.json
 
 # Local development workspace / AI workspace
 .dev/
-.development/
 playwright-report/
 test-results/
 blob-report/
+
+# Background task / tooling output
+*.output
