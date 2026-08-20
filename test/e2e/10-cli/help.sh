@@ -9,5 +9,5 @@ for flag in --help -h; do
     assert_contains "$out" "airun shell"     "$flag mentions shell subcommand"
     assert_contains "$out" "airun keys"      "$flag mentions keys subcommand"
     assert_contains "$out" "airun proxy"     "$flag mentions proxy subcommand"
-    assert_contains "$out" "GLM-5.2"         "$flag advertises GLM-5.2"
+    assert_contains "$out" "GLM-5.3"         "$flag advertises GLM-5.3"
 done

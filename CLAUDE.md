@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Agent Runtime — Docker-based infrastructure for running Claude Code agents in isolated containers with multi-provider model routing.
 
-- CLI: `airun` v0.7.0 (`cmd/airun/main.go`, no third-party CLI framework — plain `flag`)
+- CLI: `airun` v0.7.2 (`cmd/airun/main.go`, no third-party CLI framework — plain `flag`)
 - Module: `github.com/miolamio/agent-runtime`
 - External deps: `gopkg.in/yaml.v3` (config/profile), `golang.org/x/crypto` (bcrypt for proxy tokens)
 - Spec: `.development/specification.md` (Russian-language; describes the broader AUTOMATICA system; `airun` is "layer 2", the container runtime)
@@ -40,7 +40,7 @@ docker build --build-arg CLAUDE_BUST_CACHE=$(date +%s) -t agent-runtime:latest d
 
 # e2e tests — bash harness, see test/e2e/README.md
 test/e2e/run-all.sh                     # offline-safe (uses docker shim)
-test/e2e/run-all.sh --with-network      # include real provider calls (GLM-5.2 only by default)
+test/e2e/run-all.sh --with-network      # include real provider calls (GLM-5.3 only by default)
 test/e2e/run-all.sh --group 90-proxy    # one group
 test/e2e/run-all.sh --only cli/version  # one file by substring
 ```
@@ -54,7 +54,7 @@ Unit tests live in: `config/`, `envfile/`, `history/`, `keys/`, `proxy/` (+ `pro
 ## Architecture
 
 ```
-cmd/airun/main.go               # plain `flag` dispatcher; const version = "0.7.0"
+cmd/airun/main.go               # plain `flag` dispatcher; const version = "0.7.2"
   ├── config       loads ~/.airun/config.env, resolves provider/model, generates container env
   ├── runner       docker run/create, volume mounts, parallel agents, plugin filtering
   │     └── config, envfile, history, profile
@@ -163,7 +163,7 @@ type ProxyConfig struct {
   - `harness.sh` (sets `set -euo pipefail`, `on_exit` cleanups, assertions)
   - `env.sh`, `home.sh` (HOME isolation — tests must not touch real `~/.airun/` or `~/.claude/`)
   - `docker.sh` (docker shim for offline runs)
-  - `skip.sh` — `skip_unless_network` (gates real API calls behind `--with-network`); `skip_unless_non_glm` (containerized provider tests run only against `zai/glm-5.2` unless `--include-non-glm`)
+  - `skip.sh` — `skip_unless_network` (gates real API calls behind `--with-network`); `skip_unless_non_glm` (containerized provider tests run only against `zai/glm-5.3` unless `--include-non-glm`)
   - Per-test logs land in `test/e2e/.logs/<group>/<test>.log` (gitignored); TAP summary in stdout.
 
 ## Skills Source Layout
