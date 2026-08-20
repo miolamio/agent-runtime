@@ -63,6 +63,34 @@ func TestContainerEnvWithModel_Override(t *testing.T) {
 	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7")
 }
 
+// Every tier must be mapped to a provider model. An unmapped tier reaches the
+// upstream as a literal "claude-opus-…" name, which a strict gateway (the airun
+// proxy itself) rejects with "unknown model".
+func TestContainerEnvWithModel_AllTiersMapped(t *testing.T) {
+	cfg := &Config{
+		ZaiBaseURL: "https://api.z.ai/api/anthropic", ZaiAPIKey: "sk-test",
+		ZaiModel: "glm-5.3", ZaiHaikuModel: "GLM-4.5-Air",
+		APITimeout: "3000000", DisableTraffic: "1",
+	}
+	env := cfg.ContainerEnvWithModel("zai", "")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.3")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.5-Air")
+}
+
+// Providers with no haiku tier of their own fall back to the default model
+// rather than leaking a literal claude-haiku name.
+func TestContainerEnvWithModel_RemoteHaikuFallback(t *testing.T) {
+	cfg := &Config{
+		RemoteBaseURL: "https://proxy.example", RemoteAPIKey: "sk-ai-test",
+		RemoteDefaultModel: "glm-5.3", APITimeout: "3000000", DisableTraffic: "1",
+	}
+	env := cfg.ContainerEnvWithModel("remote", "")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.3")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5.3")
+}
+
 func TestLoadEnvFile(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "config.env")

@@ -189,7 +189,7 @@ func (c *Config) ContainerEnvWithModel(provider, modelOverride string) []string 
 		provider = c.Provider
 	}
 	provider = NormalizeProvider(provider)
-	var baseURL, apiKey, model string
+	var baseURL, apiKey, model, haikuModel string
 	switch provider {
 	case "minimax":
 		baseURL = c.MinimaxBaseURL
@@ -211,14 +211,24 @@ func (c *Config) ContainerEnvWithModel(provider, modelOverride string) []string 
 		baseURL = c.ZaiBaseURL
 		apiKey = c.ZaiAPIKey
 		model = c.ZaiModel
+		haikuModel = c.ZaiHaikuModel
 	}
 	if modelOverride != "" {
 		model = modelOverride
+	}
+	// Every tier must be mapped. Claude Code picks a tier on its own, and an
+	// unmapped one goes upstream as a literal "claude-opus-…"/"claude-haiku-…"
+	// name: permissive gateways alias those to their own model, but a strict
+	// one (our own proxy) rejects them with "unknown model".
+	if haikuModel == "" {
+		haikuModel = model
 	}
 	env := []string{
 		"ANTHROPIC_BASE_URL=" + baseURL,
 		"ANTHROPIC_AUTH_TOKEN=" + apiKey,
 		"ANTHROPIC_DEFAULT_SONNET_MODEL=" + model,
+		"ANTHROPIC_DEFAULT_OPUS_MODEL=" + model,
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=" + haikuModel,
 		"API_TIMEOUT_MS=" + c.APITimeout,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=" + c.DisableTraffic,
 	}
