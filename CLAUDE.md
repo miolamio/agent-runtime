@@ -29,7 +29,7 @@ go test -race ./...
 go test ./internal/proxy/...
 go test ./internal/proxy/ -run TestForwardRequest -v
 
-# Lint (CI uses golangci-lint v2.11.4; config in .golangci.yml)
+# Lint (CI uses golangci-lint v2.13.0; config in .golangci.yml)
 golangci-lint run
 
 # Build Docker image
@@ -85,7 +85,7 @@ All providers expose the Anthropic Messages API natively. `internal/config` norm
 
 Each `airun` run creates an ephemeral container.
 
-- **Mount modes**: `snapshot` (copies workspace into container) vs `bind` (live host mount).
+- **Mount modes**: `snapshot` is the default (including shell and empty config); `bind` is explicit. Unknown modes fail before Docker. Snapshot-only entrypoint ownership repair never touches bind mounts.
 - **State volume**: `airun-claude-state` Docker volume persists Claude Code state across runs; disable with `--no-state`.
 - **Build ID tracking**: `docker/entrypoint.sh` compares `/etc/airun-build-id` (baked into image) with `~/.claude/.image-build-id` (in state volume) and warns on mismatch — catches stale state after image rebuilds.
 - **Parallel agents force `NoState: true`** to prevent concurrent writes from corrupting the shared state volume.
@@ -104,8 +104,8 @@ Skills are **no longer mounted from `~/airun-skills/` or any host filesystem pat
 `internal/proxy/` — HTTP proxy that lets admins share model access without sharing API keys. The most complex subsystem.
 
 - Config: `~/.airun/proxy.yaml` (providers, RPM, user_agent) + `~/.airun/users.json` (user records). Legacy `~/.airun/students.json` and `~/students.json` are auto-migrated on first read.
-- **Token storage**: bcrypt hashes (`HashTokenBcrypt`). Pre-v0.6.0 SHA-256 hashes are accepted for verification and **transparently upgraded to bcrypt on the auth path** (asynchronous persist; auth-path latency unaffected). New users always get bcrypt.
-- **Auth**: checks `x-api-key` first, falls back to `Authorization: Bearer <token>`.
+- **Token storage**: bcrypt plus a SHA-256 lookup fingerprint of each random token. SHA-256 credentials upgrade asynchronously; unindexed legacy bcrypt credentials use bounded, resumable scans (429 + Retry-After until a match or exhaustion). Transactions re-read under an OS sidecar lock before atomic replacement; never persist a stale manager snapshot.
+- **Auth**: checks `x-api-key` first, falls back to `Authorization: Bearer <token>`. Admission is limited to 600 attempts/minute and four concurrent checks. File changes are detected before auth, including external revocations; store read failures reject access.
 - **Rate limiting**: per-user RPM. `RPM=0` means *unlimited* (intentional — not "disabled").
 - **SIGHUP reload**: reloads `proxy.yaml` (providers, RPM, user_agent) AND `users.json` without restarting; in-flight requests keep their old config.
 - The proxy only rewrites `x-api-key` and `User-Agent`; everything else passes through to the upstream provider unchanged.
@@ -120,7 +120,7 @@ Skills are **no longer mounted from `~/airun-skills/` or any host filesystem pat
 - **Proxy token format** — `sk-ai-` prefix + 32 bytes random hex = 70 chars total; tests assert this length.
 - **Forward client timeout** — 5 minutes for proxied requests; 15 seconds for key validation calls.
 - **Entrypoint credential filtering** — `docker/entrypoint.sh` strips `[credential]` sections from host git config before copying into container.
-- **Connect-proxy scripts** — `scripts/connect-proxy.{sh,ps1}` configure host Claude Code to use the proxy and mark `settings.json` with `_airunManaged` so disconnect can revert cleanly. Don't reformat that flag.
+- **Connect-proxy scripts** — `scripts/connect-proxy.{sh,ps1}` configure host Claude Code to use the proxy and keep `_airunManaged: true` plus a versioned `_airunBackup` journal in each changed document. Go/Bash/PowerShell share its schema and three-way restoration contract; the old boolean alone never authorizes deleting data.
 - **`airun.skill`** at the repo root is a packaged zip bundle (the `airun` skill exported for distribution), not source — edit `.claude/skills/airun/` instead.
 
 ## Key Domain Types

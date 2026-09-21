@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -31,18 +32,22 @@ func userFromContext(r *http.Request) *users.User {
 
 // Handler is the main HTTP handler for the proxy.
 type Handler struct {
-	config  atomic.Pointer[ProxyConfig]
-	users   *users.Manager
-	limiter *RateLimiter
-	mux     *http.ServeMux
+	config      atomic.Pointer[ProxyConfig]
+	users       *users.Manager
+	limiter     *RateLimiter
+	mux         *http.ServeMux
+	authLimiter *RateLimiter
+	authSlots   chan struct{}
 }
 
 // NewHandler creates a proxy handler.
 func NewHandler(cfg *ProxyConfig, mgr *users.Manager) *Handler {
 	h := &Handler{
-		users:   mgr,
-		limiter: NewRateLimiter(cfg.RPM),
-		mux:     http.NewServeMux(),
+		users:       mgr,
+		limiter:     NewRateLimiter(cfg.RPM),
+		mux:         http.NewServeMux(),
+		authLimiter: NewRateLimiter(600),
+		authSlots:   make(chan struct{}, 4),
 	}
 	h.config.Store(cfg)
 	h.mux.HandleFunc("GET /v1/models", h.handleModels)
@@ -70,7 +75,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusUnauthorized, "missing x-api-key or Authorization header")
 		return
 	}
-	u := h.users.FindByToken(token)
+	// Bound CPU before authentication, including invalid/legacy credentials.
+	if !h.authLimiter.Allow("authentication") {
+		w.Header().Set("Retry-After", "60")
+		jsonError(w, http.StatusTooManyRequests, "authentication rate limit exceeded")
+		return
+	}
+	select {
+	case h.authSlots <- struct{}{}:
+	default:
+		w.Header().Set("Retry-After", "1")
+		jsonError(w, http.StatusTooManyRequests, "authentication busy; retry")
+		return
+	}
+	u, authErr := h.users.Authenticate(token)
+	<-h.authSlots
+	if errors.Is(authErr, users.ErrAuthBusy) {
+		w.Header().Set("Retry-After", "1")
+		jsonError(w, http.StatusTooManyRequests, "legacy authentication in progress; retry")
+		return
+	}
+	if authErr != nil {
+		jsonError(w, http.StatusServiceUnavailable, "user store unavailable")
+		return
+	}
 	if u == nil || !u.Active {
 		jsonError(w, http.StatusUnauthorized, "invalid or revoked token")
 		return

@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -71,6 +72,16 @@ func Connect(proxyURL, token string) error {
 
 	// 1. Write env vars to ~/.claude/settings.json
 	settingsPath := claudeSettingsPath()
+	// Reject unreadable/damaged input before changing either document.
+	for _, path := range []string{settingsPath, claudeJSONPath()} {
+		document, err := readSettings(path)
+		if err != nil {
+			return err
+		}
+		if _, err := readBackup(document); err != nil {
+			return err
+		}
+	}
 	if err := mergeClaudeSettings(settingsPath, proxyURL, token, defaultModel); err != nil {
 		return fmt.Errorf("write settings: %w", err)
 	}
@@ -93,52 +104,20 @@ func Connect(proxyURL, token string) error {
 // Disconnect removes proxy settings from ~/.claude/settings.json
 // and cleans up ~/.claude.json auth bypass.
 func Disconnect() error {
-	removed := 0
-
-	// 1. Clean settings.json
-	settingsPath := claudeSettingsPath()
-	settings, err := readSettings(settingsPath)
-	if err == nil {
-		env, _ := settings["env"].(map[string]any)
-		if env != nil {
-			for _, k := range proxyEnvKeys {
-				if _, ok := env[k]; ok {
-					delete(env, k)
-					removed++
-				}
-			}
-			settings["env"] = env
-			if err := writeSettings(settingsPath, settings); err != nil {
-				fmt.Fprintf(os.Stderr, "  warning: could not update %s: %v\n", settingsPath, err)
-			}
+	removed := false
+	for _, path := range []string{claudeSettingsPath(), claudeJSONPath()} {
+		changed, err := cleanManagedSettings(path)
+		if err != nil {
+			return fmt.Errorf("restore %s: %w", path, err)
 		}
+		removed = removed || changed
 	}
-
-	// 2. Clean claude.json
-	claudeJSON := claudeJSONPath()
-	if cleanClaudeJSON(claudeJSON) {
-		removed++
+	if removed {
+		fmt.Println("  Previous settings restored; subsequent user edits preserved.")
+	} else {
+		fmt.Println("  No reversible proxy settings found.")
 	}
-
-	if removed == 0 {
-		fmt.Println("  No proxy settings found.")
-		return nil
-	}
-
-	fmt.Println("  Proxy settings removed.")
-	fmt.Println("  Claude Code will use its default Anthropic API.")
 	return nil
-}
-
-// --- env keys managed by connect/disconnect ---
-
-var proxyEnvKeys = []string{
-	"ANTHROPIC_AUTH_TOKEN",
-	"ANTHROPIC_BASE_URL",
-	"ANTHROPIC_DEFAULT_SONNET_MODEL",
-	"ANTHROPIC_DEFAULT_OPUS_MODEL",
-	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
-	"API_TIMEOUT_MS",
 }
 
 // --- ~/.claude.json management ---
@@ -150,102 +129,70 @@ func claudeJSONPath() string {
 
 // writeClaudeJSON creates or merges ~/.claude.json with onboarding bypass fields.
 func writeClaudeJSON(path, apiKey string) error {
-	cj, _ := readSettings(path) // reuse generic JSON reader; empty map if missing
-
-	// Detect installed Claude Code version
-	ver := detectClaudeVersion()
-
-	// Core onboarding bypass
-	cj["hasCompletedOnboarding"] = true
-	cj["hasTrustDialogAccepted"] = true
-	cj["lastOnboardingVersion"] = ver
-	cj["autoUpdaterStatus"] = "disabled"
-
-	// Ensure numStartups is set (avoids first-run prompts)
-	if _, ok := cj["numStartups"]; !ok {
-		cj["numStartups"] = float64(184)
-	}
-
-	// Generate userID if missing
-	if _, ok := cj["userID"]; !ok {
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return fmt.Errorf("generate userID: %w", err)
+	return updateManagedSettings(path, func(cj map[string]any) error {
+		if value, exists := cj["customApiKeyResponses"]; exists {
+			if _, ok := value.(map[string]any); !ok {
+				return fmt.Errorf("customApiKeyResponses must be an object")
+			}
 		}
-		cj["userID"] = hex.EncodeToString(b)
-	}
 
-	// Ensure projects map exists
-	if _, ok := cj["projects"]; !ok {
-		cj["projects"] = map[string]any{}
-	}
+		// Detect installed Claude Code version
+		ver := detectClaudeVersion()
 
-	// Trust the API key (last 20 chars) to avoid "trust this key?" dialog
-	keyTail := apiKey
-	if len(keyTail) > 20 {
-		keyTail = keyTail[len(keyTail)-20:]
-	}
-	car, _ := cj["customApiKeyResponses"].(map[string]any)
-	if car == nil {
-		car = map[string]any{}
-	}
-	approved, _ := car["approved"].([]any)
-	// Add if not already present
-	found := false
-	for _, a := range approved {
-		if a == keyTail {
-			found = true
-			break
+		// Core onboarding bypass
+		cj["hasCompletedOnboarding"] = true
+		cj["hasTrustDialogAccepted"] = true
+		cj["lastOnboardingVersion"] = ver
+		cj["autoUpdaterStatus"] = "disabled"
+
+		// Ensure numStartups is set (avoids first-run prompts)
+		if _, ok := cj["numStartups"]; !ok {
+			cj["numStartups"] = float64(184)
 		}
-	}
-	if !found {
-		approved = append(approved, keyTail)
-	}
-	car["approved"] = approved
-	if _, ok := car["rejected"]; !ok {
-		car["rejected"] = []any{}
-	}
-	cj["customApiKeyResponses"] = car
 
-	// Mark that we wrote this (for clean disconnect)
-	cj["_airunManaged"] = true
-
-	return writeSettings(path, cj)
-}
-
-// cleanClaudeJSON removes airun-managed fields from ~/.claude.json.
-// If we created the file (_airunManaged marker), remove it entirely.
-// Returns true if changes were made.
-func cleanClaudeJSON(path string) bool {
-	cj, err := readSettings(path)
-	if err != nil || len(cj) == 0 {
-		return false
-	}
-
-	managed, _ := cj["_airunManaged"].(bool)
-	if managed {
-		// We created this file — safe to remove entirely
-		os.Remove(path)
-		return true
-	}
-
-	// File existed before us — only remove our specific fields
-	changed := false
-	for _, k := range []string{
-		"_airunManaged",
-		"customApiKeyResponses",
-	} {
-		if _, ok := cj[k]; ok {
-			delete(cj, k)
-			changed = true
+		// Generate userID if missing
+		if _, ok := cj["userID"]; !ok {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				return fmt.Errorf("generate userID: %w", err)
+			}
+			cj["userID"] = hex.EncodeToString(b)
 		}
-	}
-	if changed {
-		if err := writeSettings(path, cj); err != nil {
-			fmt.Fprintf(os.Stderr, "  warning: could not update %s: %v\n", path, err)
+
+		// Ensure projects map exists
+		if _, ok := cj["projects"]; !ok {
+			cj["projects"] = map[string]any{}
 		}
-	}
-	return changed
+
+		// Trust the API key (last 20 chars) to avoid "trust this key?" dialog
+		keyTail := apiKey
+		if len(keyTail) > 20 {
+			keyTail = keyTail[len(keyTail)-20:]
+		}
+		car, _ := cj["customApiKeyResponses"].(map[string]any)
+		if car == nil {
+			car = map[string]any{}
+		}
+		approved, _ := car["approved"].([]any)
+		// Add if not already present
+		found := false
+		for _, a := range approved {
+			if a == keyTail {
+				found = true
+				break
+			}
+		}
+		if !found {
+			approved = append(approved, keyTail)
+		}
+		car["approved"] = approved
+		if _, ok := car["rejected"]; !ok {
+			car["rejected"] = []any{}
+		}
+		cj["customApiKeyResponses"] = car
+
+		return nil
+	})
 }
 
 // detectClaudeVersion tries to find the installed Claude Code version.
@@ -280,8 +227,13 @@ func readSettings(path string) (map[string]any, error) {
 		return nil, err
 	}
 	var settings map[string]any
+	// Windows PowerShell 5.1's Set-Content -Encoding UTF8 writes a BOM.
+	data = bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if settings == nil {
+		return nil, fmt.Errorf("%s must contain a JSON object", path)
 	}
 	return settings, nil
 }
@@ -296,27 +248,44 @@ func writeSettings(path string, settings map[string]any) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0600)
-}
-
-func mergeClaudeSettings(path, proxyURL, token, model string) error {
-	settings, err := readSettings(path)
+	f, err := os.CreateTemp(dir, ".airun-settings-*")
 	if err != nil {
 		return err
 	}
-
-	env, ok := settings["env"].(map[string]any)
-	if !ok {
-		env = map[string]any{}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
 	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
 
-	env["ANTHROPIC_AUTH_TOKEN"] = token
-	env["ANTHROPIC_BASE_URL"] = proxyURL
-	env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
-	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
-	env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
-	env["API_TIMEOUT_MS"] = "3000000"
+func mergeClaudeSettings(path, proxyURL, token, model string) error {
+	return updateManagedSettings(path, func(settings map[string]any) error {
+		if value, exists := settings["env"]; exists {
+			if _, ok := value.(map[string]any); !ok {
+				return fmt.Errorf("env must be an object")
+			}
+		}
+		env, ok := settings["env"].(map[string]any)
+		if !ok {
+			env = map[string]any{}
+		}
 
-	settings["env"] = env
-	return writeSettings(path, settings)
+		env["ANTHROPIC_AUTH_TOKEN"] = token
+		env["ANTHROPIC_BASE_URL"] = proxyURL
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+		env["API_TIMEOUT_MS"] = "3000000"
+
+		settings["env"] = env
+		return nil
+	})
 }

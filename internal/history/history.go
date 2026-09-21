@@ -1,6 +1,8 @@
 package history
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,14 +13,18 @@ import (
 )
 
 type RunRecord struct {
-	Timestamp  string `json:"timestamp"`
-	Profile    string `json:"profile"`
-	Provider   string `json:"provider"`
-	Model      string `json:"model"`
-	Prompt     string `json:"prompt"`
-	DurationMs int64  `json:"duration_ms"`
-	ExitCode   int    `json:"exit_code"`
-	RunDir     string `json:"run_dir"`
+	RunID             string `json:"run_id"`
+	AgentName         string `json:"agent_name,omitempty"`
+	Error             string `json:"error,omitempty"`
+	RecoveryContainer string `json:"recovery_container,omitempty"`
+	Timestamp         string `json:"timestamp"`
+	Profile           string `json:"profile"`
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
+	Prompt            string `json:"prompt"`
+	DurationMs        int64  `json:"duration_ms"`
+	ExitCode          int    `json:"exit_code"`
+	RunDir            string `json:"run_dir"`
 }
 
 func runsDir() string {
@@ -46,16 +52,26 @@ func Save(rec RunRecord, output string) error {
 		"output.txt": []byte(output),
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), content, 0600); err != nil {
-			fmt.Fprintf(os.Stderr, "[airun] warning: cannot write %s: %v\n", name, err)
+			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}
 	return nil
 }
 
+// NewRunID combines a sortable timestamp with 128 random bits across processes.
+func NewRunID() string {
+	var id [16]byte
+	_, _ = rand.Read(id[:])
+	return time.Now().UTC().Format("2006-01-02_15-04-05.000000000") + "-" + hex.EncodeToString(id[:])
+}
+
+func RunDir(id, profile, provider string) string {
+	label := strings.NewReplacer("/", "-", "\\", "-").Replace(profile + "_" + provider)
+	return filepath.Join(runsDir(), id+"_"+label)
+}
+
 func NewRunDir(profile, provider string) string {
-	ts := time.Now().Format("2006-01-02_15-04-05")
-	name := fmt.Sprintf("%s_%s_%s", ts, profile, provider)
-	return filepath.Join(runsDir(), name)
+	return RunDir(NewRunID(), profile, provider)
 }
 
 func List(limit int) ([]RunRecord, error) {

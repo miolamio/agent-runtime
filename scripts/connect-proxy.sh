@@ -10,45 +10,66 @@ set -euo pipefail
 # Disconnect (clean all proxy settings):
 #   bash connect-proxy.sh --disconnect
 
-# ── Disconnect mode ──
+# Shared journal schema: _airunBackup={version:1,created,before,after}.
+# Never infer ownership from the legacy _airunManaged boolean alone.
+umask 077
+command -v jq >/dev/null || { echo "Error: jq is required." >&2; exit 1; }
+JOURNAL_JQ=$(cat <<'JQ'
+def undo($before; $after):
+  reduce ((($before | keys) + ($after | keys) | unique)[]) as $k (. ;
+    if (($before|has($k)) == ($after|has($k)) and $before[$k] == $after[$k]) then .
+    elif (has($k) == ($after|has($k)) and .[$k] == $after[$k]) then
+      if $before|has($k) then .[$k] = $before[$k] else del(.[$k]) end
+    elif (.[$k]|type) == "object" and ($after[$k]|type) == "object" then
+      .[$k] |= undo(($before[$k] // {}); $after[$k]) |
+      if (($before|has($k)|not) and .[$k] == {}) then del(.[$k]) else . end
+    elif (.[$k]|type) == "array" and ($after[$k]|type) == "array" then
+      .[$k] |= map(. as $item | select(($after[$k]|index($item)) == null or (($before[$k] // [])|index($item)) != null)) |
+      if (($before|has($k)|not) and .[$k] == []) then del(.[$k]) else . end
+    else . end);
+def checked_backup:
+  if has("_airunBackup") and (._airunBackup.version != 1 or (._airunBackup.before|type) != "object" or (._airunBackup.after|type) != "object")
+  then error("unsupported or damaged airun settings backup") else . end;
+def journal($current; $created):
+  . as $desired |
+  ($current | checked_backup) as $c |
+  (if $c|has("_airunBackup") then
+     $c | del(._airunBackup, ._airunManaged) | undo($c._airunBackup.before; $c._airunBackup.after)
+   else $c end) as $before |
+  ($desired | del(._airunBackup, ._airunManaged)) as $after |
+  (reduce ($after|keys[]) as $k ({before:{},after:{}};
+    if ($before|has($k)|not) or $before[$k] != $after[$k] then
+      .after[$k] = $after[$k] |
+      if $before|has($k) then .before[$k] = $before[$k] else . end
+    else . end)) as $delta |
+  $after + {_airunManaged:true, _airunBackup:($delta + {version:1,created:(if $c|has("_airunBackup") then $c._airunBackup.created else $created end)})};
+JQ
+)
+read_document() {
+    if [ -e "$1" ]; then jq -e 'if type == "object" then . else error("expected JSON object") end' "$1"
+    else printf '{}\n'; fi
+}
+write_document() {
+    local target="$1" data="$2" temporary
+    mkdir -p "$(dirname "$target")"
+    temporary=$(mktemp "${target}.airun-XXXXXX")
+    if ! printf '%s\n' "$data" > "$temporary" || ! mv -f "$temporary" "$target"; then
+        rm -f "$temporary"
+        return 1
+    fi
+}
 if [ "${1:-}" = "--disconnect" ] || [ "${1:-}" = "disconnect" ]; then
-    SETTINGS_FILE="$HOME/.claude/settings.json"
-    CLAUDE_JSON="$HOME/.claude.json"
-    removed=0
-
-    # Clean settings.json
-    if [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
-        KEYS='["ANTHROPIC_AUTH_TOKEN","ANTHROPIC_BASE_URL","ANTHROPIC_DEFAULT_SONNET_MODEL","ANTHROPIC_DEFAULT_OPUS_MODEL","ANTHROPIC_DEFAULT_HAIKU_MODEL","API_TIMEOUT_MS"]'
-        has_any=$(jq --argjson keys "$KEYS" '[.env // {} | keys[] | select(. as $k | $keys | index($k))] | length' "$SETTINGS_FILE" 2>/dev/null || echo 0)
-        if [ "$has_any" -gt 0 ]; then
-            UPDATED=$(jq --argjson keys "$KEYS" 'if .env then .env |= with_entries(select(.key as $k | $keys | index($k) | not)) else . end' "$SETTINGS_FILE")
-            echo "$UPDATED" > "$SETTINGS_FILE"
-            removed=$((removed + 1))
+    for target in "$HOME/.claude/settings.json" "$HOME/.claude.json"; do
+        current=$(read_document "$target")
+        printf '%s\n' "$current" | jq -e "$JOURNAL_JQ checked_backup" >/dev/null
+        if [ "$(printf '%s\n' "$current" | jq 'has("_airunBackup")')" = true ]; then
+            updated=$(printf '%s\n' "$current" | jq "$JOURNAL_JQ ._airunBackup as \$b | del(._airunBackup, ._airunManaged) | undo(\$b.before; \$b.after)")
+            if [ "$(printf '%s\n' "$current" | jq '._airunBackup.created')" = true ] && [ "$updated" = '{}' ]; then
+                rm -f "$target"
+            else write_document "$target" "$updated"; fi
         fi
-    fi
-
-    # Clean claude.json
-    if [ -f "$CLAUDE_JSON" ] && command -v jq &>/dev/null; then
-        is_managed=$(jq -r '._airunManaged // false' "$CLAUDE_JSON" 2>/dev/null)
-        if [ "$is_managed" = "true" ]; then
-            rm -f "$CLAUDE_JSON"
-            removed=$((removed + 1))
-        else
-            has_car=$(jq 'has("customApiKeyResponses")' "$CLAUDE_JSON" 2>/dev/null || echo false)
-            if [ "$has_car" = "true" ]; then
-                UPDATED=$(jq 'del(._airunManaged, .customApiKeyResponses)' "$CLAUDE_JSON")
-                echo "$UPDATED" > "$CLAUDE_JSON"
-                removed=$((removed + 1))
-            fi
-        fi
-    fi
-
-    if [ "$removed" -eq 0 ]; then
-        echo "  No proxy settings found."
-    else
-        echo "  Proxy settings removed."
-        echo "  Claude Code will use its default Anthropic API."
-    fi
+    done
+    echo "  Previous settings restored; subsequent user edits preserved."
     exit 0
 fi
 
@@ -117,95 +138,43 @@ if [ "$MODEL_COUNT" -gt 1 ]; then
     fi
 fi
 
-# ── 1. Write ~/.claude/settings.json ──
-SETTINGS_DIR="$HOME/.claude"
-SETTINGS_FILE="$SETTINGS_DIR/settings.json"
-
-mkdir -p "$SETTINGS_DIR"
-
-if [ -f "$SETTINGS_FILE" ]; then
-    UPDATED=$(jq \
-        --arg url "$PROXY_URL" \
-        --arg key "$API_KEY" \
-        --arg model "$DEFAULT_MODEL" \
-        '.env = (.env // {}) + {
-            ANTHROPIC_AUTH_TOKEN: $key,
-            ANTHROPIC_BASE_URL: $url,
-            ANTHROPIC_DEFAULT_SONNET_MODEL: $model,
-            ANTHROPIC_DEFAULT_OPUS_MODEL: $model,
-            ANTHROPIC_DEFAULT_HAIKU_MODEL: $model,
-            API_TIMEOUT_MS: "3000000"
-        }' "$SETTINGS_FILE")
-    echo "$UPDATED" > "$SETTINGS_FILE"
-else
-    jq -n \
-        --arg url "$PROXY_URL" \
-        --arg key "$API_KEY" \
-        --arg model "$DEFAULT_MODEL" \
-        '{
-            env: {
-                ANTHROPIC_AUTH_TOKEN: $key,
-                ANTHROPIC_BASE_URL: $url,
-                ANTHROPIC_DEFAULT_SONNET_MODEL: $model,
-                ANTHROPIC_DEFAULT_OPUS_MODEL: $model,
-                ANTHROPIC_DEFAULT_HAIKU_MODEL: $model,
-                API_TIMEOUT_MS: "3000000"
-            }
-        }' > "$SETTINGS_FILE"
-fi
-chmod 600 "$SETTINGS_FILE"
-
-# ── 2. Write ~/.claude.json (onboarding/auth bypass) ──
+# Validate both documents before changing either one.
+SETTINGS_FILE="$HOME/.claude/settings.json"
 CLAUDE_JSON="$HOME/.claude.json"
-
-# Detect Claude Code version
+SETTINGS=$(read_document "$SETTINGS_FILE")
+CLAUDE_SETTINGS=$(read_document "$CLAUDE_JSON")
+settings_created=true; [ ! -e "$SETTINGS_FILE" ] || settings_created=false
+claude_created=true; [ ! -e "$CLAUDE_JSON" ] || claude_created=false
+UPDATED_SETTINGS=$(printf '%s\n' "$SETTINGS" | jq \
+    --arg url "$PROXY_URL" --arg key "$API_KEY" --arg model "$DEFAULT_MODEL" --argjson created "$settings_created" \
+    "$JOURNAL_JQ"'
+    . as $current |
+    if has("env") and (.env|type) != "object" then error("env must be an object") else . end |
+    .env = (.env // {}) + {
+      ANTHROPIC_AUTH_TOKEN:$key, ANTHROPIC_BASE_URL:$url,
+      ANTHROPIC_DEFAULT_SONNET_MODEL:$model, ANTHROPIC_DEFAULT_OPUS_MODEL:$model,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL:$model, API_TIMEOUT_MS:"3000000"
+    } | journal($current; $created)')
 CLAUDE_VER=$(claude --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "99.0.0")
-
-# Last 20 chars of API key for trust
-KEY_TAIL="${API_KEY: -20}"
-
-if [ -f "$CLAUDE_JSON" ]; then
-    UPDATED=$(jq \
-        --arg ver "$CLAUDE_VER" \
-        --arg tail "$KEY_TAIL" \
-        '
-        .hasCompletedOnboarding = true |
-        .hasTrustDialogAccepted = true |
-        .lastOnboardingVersion = $ver |
-        .autoUpdaterStatus = "disabled" |
-        .numStartups = (.numStartups // 184) |
-        .userID = (.userID // (now | tostring | gsub("\\."; ""))) |
-        .projects = (.projects // {}) |
-        ._airunManaged = true |
-        .customApiKeyResponses = ((.customApiKeyResponses // {}) + {
-            approved: (((.customApiKeyResponses // {}).approved // []) + [$tail] | unique),
-            rejected: ((.customApiKeyResponses // {}).rejected // [])
-        })
-        ' "$CLAUDE_JSON")
-    echo "$UPDATED" > "$CLAUDE_JSON"
-else
-    USER_ID=$(od -An -tx1 -N32 /dev/urandom 2>/dev/null | tr -d ' \n' || date +%s%N)
-    jq -n \
-        --arg ver "$CLAUDE_VER" \
-        --arg uid "$USER_ID" \
-        --arg tail "$KEY_TAIL" \
-        '{
-            hasCompletedOnboarding: true,
-            hasTrustDialogAccepted: true,
-            lastOnboardingVersion: $ver,
-            autoUpdaterStatus: "disabled",
-            numStartups: 184,
-            userID: $uid,
-            projects: {},
-            _airunManaged: true,
-            customApiKeyResponses: {
-                approved: [$tail],
-                rejected: []
-            }
-        }' > "$CLAUDE_JSON"
-fi
-chmod 600 "$CLAUDE_JSON"
-
+KEY_TAIL="$API_KEY"
+if [ "${#KEY_TAIL}" -gt 20 ]; then KEY_TAIL="${KEY_TAIL: -20}"; fi
+USER_ID=$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')
+UPDATED_CLAUDE=$(printf '%s\n' "$CLAUDE_SETTINGS" | jq \
+    --arg ver "$CLAUDE_VER" --arg tail "$KEY_TAIL" --arg uid "$USER_ID" --argjson created "$claude_created" \
+    "$JOURNAL_JQ"'
+    . as $current |
+    if has("customApiKeyResponses") and (.customApiKeyResponses|type) != "object" then error("customApiKeyResponses must be an object") else . end |
+    .hasCompletedOnboarding = true | .hasTrustDialogAccepted = true |
+    .lastOnboardingVersion = $ver | .autoUpdaterStatus = "disabled" |
+    if has("numStartups") then . else .numStartups = 184 end |
+    if has("userID") then . else .userID = $uid end |
+    if has("projects") then . else .projects = {} end |
+    .customApiKeyResponses = (.customApiKeyResponses // {}) |
+    .customApiKeyResponses.approved = ((.customApiKeyResponses.approved // []) as $a | if $a|index($tail) then $a else $a + [$tail] end) |
+    if .customApiKeyResponses|has("rejected") then . else .customApiKeyResponses.rejected = [] end |
+    journal($current; $created)')
+write_document "$SETTINGS_FILE" "$UPDATED_SETTINGS"
+write_document "$CLAUDE_JSON" "$UPDATED_CLAUDE"
 echo ""
 echo "  Claude Code configured:"
 echo "    URL:      $PROXY_URL"

@@ -6,7 +6,7 @@
 
 A CLI tool for running [Claude Code](https://docs.anthropic.com/en/docs/claude-code) agents inside isolated Docker containers with multi-provider model routing.
 
-`airun` wraps Docker to give each agent run a clean, reproducible environment: a non-root user, mounted workspace, injected credentials, and a ready-to-use Claude Code CLI. You choose the model provider, attach a workload profile, and let it run — one-shot, interactive, or in a loop.
+`airun` wraps Docker to give each agent run a non-root user, a workspace copied into the container by default, provider credentials, and a ready-to-use Claude Code CLI. You choose the model provider, attach a workload profile, and let it run — one-shot, interactive, or in a loop.
 
 ## Quick Start — Connect Claude Code to Proxy
 
@@ -25,10 +25,20 @@ irm https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connec
 
 This configures `~/.claude/settings.json` and bypasses authentication dialogs. After that, just run `claude`.
 
-To disconnect and restore original settings:
+To disconnect on macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.sh | bash -s -- --disconnect
 ```
+
+On Windows (PowerShell):
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts/connect-proxy.ps1))) -Disconnect
+```
+
+Disconnect restores the values changed by airun and preserves later user edits.
+See [proxy settings recovery](#proxy-settings-recovery) for legacy installations.
 
 ---
 
@@ -66,7 +76,7 @@ The wizard walks you through provider selection:
 1. **Choose providers** — select which providers to configure (Z.AI, MiniMax, Kimi), with links to sign-up pages
 2. **Enter API keys** — each key is validated via a live API call before saving
 3. **Set default provider** — pick which provider to use by default
-4. **Create directories** — `~/airun-profiles/`, `~/airun-skills/`, `~/.airun/runs/`
+4. **Create directories and copy profile templates** — under `~/.airun/`, including `profiles/`, `agents/`, and `runs/`
 5. **Install the binary** — copies `airun` to `~/.local/bin/` and adds it to your `PATH`
 
 After init completes, open a new shell (or `source ~/.zshrc`) so `airun` is available globally.
@@ -97,6 +107,34 @@ airun "List the files in the current directory and describe the project structur
 airun shell
 ```
 
+## Updating an existing installation
+
+Run these commands from your `agent-runtime` checkout on macOS or Linux:
+
+```bash
+git pull --ff-only
+go build -o bin/airun ./cmd/airun/
+mkdir -p "$HOME/.local/bin"
+install -m 755 bin/airun "$HOME/.local/bin/airun"
+"$HOME/.local/bin/airun" rebuild
+"$HOME/.local/bin/airun" --version
+"$HOME/.local/bin/airun" --check
+```
+
+Update both the installed CLI and Docker image to apply the snapshot permissions
+fix: the CLI selects the workspace mode and the image prepares the copied files
+for the agent user. Rebuilding the image alone does not update the host CLI.
+Existing configuration and the persistent Claude Code state volume are retained.
+
+`airun rebuild` uses Docker's build cache. Use `airun rebuild --fresh` to force
+Claude Code reinstallation, or `airun rebuild --no-cache` to rebuild all layers.
+A proxy running on another host needs its binary updated and its service
+restarted separately; see [Maintenance](#maintenance).
+
+The [P1 fixes and validation report](docs/p1-fixes-2026-09-21.md) covers ART-1
+through ART-10, including snapshot permissions, export recovery, concurrent
+user updates, authentication limits, and reversible proxy settings.
+
 ## API keys and configuration
 
 ### Where to get API keys
@@ -126,22 +164,24 @@ airun keys default kimi        # change default provider
 
 ### Configuration file
 
-All configuration lives in a single file: **`~/.airun.env`**
+CLI configuration lives in **`~/.airun/config.env`**. The legacy
+`~/.airun.env` file is migrated on first load when the new file is absent.
+Profiles and proxy configuration have separate files under `~/.airun/`.
 
 You can create it with `airun init` (recommended) or write it manually:
 
 ```bash
-# ~/.airun.env
+# ~/.airun/config.env
 
 # ── General ──
-ARUN_WORKSPACE=/Users/you/src     # Default directory to mount into containers
+ARUN_WORKSPACE=/Users/you/src     # Fallback workspace if the current directory is unavailable
 ARUN_MODE=snapshot                 # Mount mode: snapshot (copy) or bind (live)
 ARUN_PROVIDER=zai                  # Default provider: zai | minimax | kimi | remote
 
 # ── Z.AI ──
 ZAI_API_KEY=sk-abc123...           # Your Z.AI API key
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
-ZAI_MODEL=glm-4.7                 # Primary model
+ZAI_MODEL=glm-5.3                 # Primary model
 ZAI_HAIKU_MODEL=GLM-4.5-Air       # Fast model
 
 # ── MiniMax ──
@@ -164,7 +204,7 @@ The file is created with `chmod 600` permissions — only your user can read it.
 ### How credentials flow into containers
 
 ```
-~/.airun.env                          You store keys here (on host, chmod 600)
+~/.airun/config.env                   You store keys here (on host, chmod 600)
     |
     v
 airun CLI reads the file               Parses provider API key
@@ -184,10 +224,11 @@ Container receives env vars           Claude Code reads ANTHROPIC_* vars nativel
 Temp file is deleted                   Removed automatically after the container exits
 ```
 
-Credentials never appear in:
-- CLI arguments (not visible in `ps aux`)
-- Docker inspect output (not stored in container metadata)
-- Container logs or run history
+The CLI passes the temporary file's path to Docker, so provider keys are absent
+from the Docker command arguments. Docker stores the resulting environment in
+container metadata: users with Docker access can read it via `docker inspect`.
+The temporary file is removed after the run; agent output may still contain
+secrets if the agent prints them.
 
 ### Overriding the provider per run
 
@@ -209,12 +250,12 @@ airun --provider k "your prompt"
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARUN_WORKSPACE` | No | `~/src` | Directory mounted into containers |
+| `ARUN_WORKSPACE` | No | `~/src` | Fallback workspace; use `--mount` to select a directory per run |
 | `ARUN_MODE` | No | `snapshot` | `snapshot` (copy) or `bind` (live mount) |
 | `ARUN_PROVIDER` | No | `zai` | Default provider (`zai`, `minimax`, or `kimi`) |
 | `ZAI_API_KEY` | Yes* | — | Z.AI API key |
 | `ZAI_BASE_URL` | No | `https://api.z.ai/api/anthropic` | Z.AI endpoint |
-| `ZAI_MODEL` | No | `glm-4.7` | Z.AI primary model |
+| `ZAI_MODEL` | No | `glm-5.3` | Z.AI primary model |
 | `ZAI_HAIKU_MODEL` | No | `GLM-4.5-Air` | Z.AI fast model |
 | `MINIMAX_API_KEY` | Yes* | — | MiniMax API key |
 | `MINIMAX_BASE_URL` | No | `https://api.minimax.io/anthropic` | MiniMax endpoint |
@@ -252,10 +293,12 @@ airun proxy serve                           Start proxy server
 airun proxy user add <name>                 Add user
 airun proxy user list                       List users
 airun proxy user revoke <name>              Revoke user access
+airun proxy user restore <name>             Restore user access
 airun proxy user import <file>              Bulk import users
-airun proxy user export                     Export user tokens
+airun proxy user export                     Export stored active-user credentials
 airun init                                  Interactive global setup
 airun rebuild                               Rebuild Docker image
+airun rebuild --fresh                       Reinstall Claude Code in the image
 airun rebuild --no-cache                    Rebuild without cache
 airun --status                              Show running agents
 airun --check                               Show config and prerequisites
@@ -264,17 +307,45 @@ airun --version                             Show version
 
 ### Running from any directory
 
-`airun` automatically mounts your current working directory into the container as `/workspace`. There is no need to run it from a specific location — just `cd` into your project and run.
+`airun` uses your current working directory as `/workspace`. To use a different
+directory, pass `--mount /path/to/project`.
+
+### Workspace modes
+
+Workspace mode is `snapshot` by default, including `airun shell`. The CLI copies
+the directory into the container, where the agent can edit it without changing
+the host files. Set `ARUN_MODE=bind` in `~/.airun/config.env` to edit the host
+directory directly through a live mount.
+
+An empty `ARUN_MODE` also selects snapshot; any other value is rejected before
+Docker is invoked. Snapshot ownership is adjusted inside the container only.
 
 ### Exporting artifacts
 
-By default, changes made by the agent stay inside the container. To save them:
+In snapshot mode, changes stay inside the container and are discarded when it
+is removed. Export them with `--output`:
 
 ```bash
 airun --output ./results "Generate a report on the codebase"
 ```
 
-This creates the container, runs the task, copies `/workspace` to `./results`, and removes the container.
+This runs the task, copies `/workspace` to `./results`, and removes the container
+after a successful export.
+
+Every run has a unique ID shared by its Docker container and history directory.
+History includes the agent name. If `--output` cannot create its destination or
+copy the result, the command fails and records the error in history. The stopped
+container is retained; stderr and `meta.json` identify it. Recover into a fresh
+directory using `docker cp <container>:/workspace/. <recovery-directory>`, verify
+the files, then remove the container with `docker rm <container>`. A failed
+export may leave a partial destination.
+
+### Browser access
+
+Browser ports (`--browser vnc`, `cdp`, or `both`) are published on
+`127.0.0.1:6080` and `127.0.0.1:9222` only. For remote access, use an authenticated
+SSH tunnel, for example `ssh -L 6080:127.0.0.1:6080 runtime-host`. Publishing the
+CDP port does not itself launch Chromium or configure a browser client.
 
 ## Providers
 
@@ -310,7 +381,30 @@ User (Claude Code)             Proxy server               Provider (Z.AI, MiniMa
      |<-------- response -----------|                              |
 ```
 
+User changes are serialized across processes and preserve concurrent additions,
+revocations, restores, and token migrations. The server checks for changes to
+`users.json` before authentication, so a revoked token stops authenticating
+without SIGHUP. Unreadable or damaged user stores fail closed.
+
+New credentials retain bcrypt hashes and include a SHA-256 lookup fingerprint
+of the random token. The fingerprint is not accepted as a credential. Legacy
+SHA-256 and plaintext records are migrated automatically. Older bcrypt records
+without fingerprints are searched in batches of at most four checks per
+request, with one legacy scan running at a time. A `429` response with
+`Retry-After: 1` resumes the search on retry; the first successful login persists
+the fingerprint. Resume state is bounded to 128 tokens and expires after one
+minute. Authentication has a separate global admission budget of 600 attempts
+per minute and four concurrent checks, even when per-user `rpm` is unlimited.
+
 The proxy only replaces `x-api-key` and `User-Agent` headers. Everything else — request body, streaming, response — passes through unchanged.
+
+### Proxy settings recovery
+
+The Go, Bash, and PowerShell proxy-connect clients share an `_airunBackup`
+journal. Disconnect restores the settings airun changed while preserving later
+user edits, projects, user IDs, and other API-key approvals. Old installations
+with only `_airunManaged: true` have no recoverable baseline; disconnect leaves
+those documents intact rather than guessing which data belongs to airun.
 
 ### Deploying the proxy server
 
@@ -332,14 +426,19 @@ ssh root@your-server "airun proxy init"
 ```
 
 This creates two files (in `~/.airun/`):
+
 - `proxy.yaml` — provider configuration (API keys, models, rate limits)
 - `users.json` — user database (empty)
 
-Edit `~/proxy.yaml` to add your provider API keys:
+Existing files are preserved. Re-running `airun proxy init` creates only missing
+files, so a partially initialized directory can be completed. New configuration
+files use mode `0600`, and a new parent directory uses `0700`.
+
+Edit `~/.airun/proxy.yaml` to add your provider API keys:
 
 ```yaml
-# ~/proxy.yaml
-listen: ":8080"
+# ~/.airun/proxy.yaml
+listen: "127.0.0.1:8080"
 rpm: 0                # 0 = no limit; >0 = per-user requests per minute
 user_agent: "claude-cli/2.1.80 (external, cli)"
 
@@ -465,10 +564,10 @@ ssh root@your-server "airun proxy user add 'Ivanov'"
 # Bulk import from a file (one name per line)
 ssh root@your-server "airun proxy user import users.txt"
 
-# List all users (tokens masked)
+# List all users (stored credentials masked)
 ssh root@your-server "airun proxy user list"
 
-# Export active users with full tokens (for distribution)
+# Export active users and their stored credential hashes
 ssh root@your-server "airun proxy user export"
 
 # Revoke / restore access
@@ -476,7 +575,11 @@ ssh root@your-server "airun proxy user revoke 'Ivanov'"
 ssh root@your-server "airun proxy user restore 'Ivanov'"
 ```
 
-The proxy picks up user changes on the next request. To reload `users.json` without restarting:
+Save the token printed by `user add` or `user import` for distribution. The user
+database stores hashes; `user export` cannot recover the original usable tokens.
+
+The proxy picks up user changes on the next request. To reload provider
+configuration from `proxy.yaml` as well, send SIGHUP:
 
 ```bash
 ssh root@your-server "kill -HUP \$(pgrep -f 'airun proxy serve')"
@@ -548,31 +651,37 @@ ssh root@existing-server "cat ~/.airun/users.json" | ssh root@new-server "cat > 
 # Then repeat Steps 3–6 above with the new server's domain name
 ```
 
-Users can connect to any proxy instance with the same token — the user database is shared via the copied `users.json`.
+Users can connect to either proxy with the same token after the copy. The files
+are independent afterward; additions and revocations must be applied to each
+instance.
 
 ## Profiles
 
-Profiles bundle a provider, a set of skills, Claude Code plugins, and settings into a reusable configuration.
+Profiles bundle a provider, Claude Code plugins, and settings into a reusable
+configuration under `~/.airun/profiles/`.
 
 ```yaml
-# ~/airun-profiles/dev.yaml
+# ~/.airun/profiles/dev.yaml
 name: dev
 description: Full-stack development
 provider: z
-skills:
-  - claude-code-best-practices
-  - webapp-testing
 plugins:
-  - superpowers@superpowers-marketplace
-  - context7@claude-plugins-official
+  - security-guidance@claude-plugins-official
+  - playwright@claude-plugins-official
+  - frontend-design@claude-plugins-official
+  - example-skills@anthropic-agent-skills
 settings:
   effortLevel: high
   alwaysThinkingEnabled: true
 ```
 
-Skills listed in the profile are loaded from `~/airun-skills/<skill-name>/` and mounted read-only into the container at `/home/claude/.claude/skills/`.
+Skills are delivered through marketplace plugins. The image seeds the base
+plugins (`superpowers`, `context7`, and `skill-creator`); profile plugins are
+activated when the container starts. The legacy `skills:` field is ignored with
+a warning; host skill directories are no longer mounted into containers.
 
-Three profiles ship as templates: **default**, **dev**, and **text** (Russian text editing and translation).
+Five profiles ship as templates: **default**, **dev**, **ceo**, **research**, and
+**text** (Russian text editing and translation).
 
 ```bash
 airun -p dev "Refactor the authentication module"
@@ -597,7 +706,7 @@ Rebuild anytime with `airun rebuild` (or `airun rebuild --no-cache` for a clean 
 agent-runtime/
 ├── cmd/airun/main.go              CLI entry point
 ├── internal/
-│   ├── config/                   ~/.airun.env loader
+│   ├── config/                   ~/.airun/config.env loader
 │   ├── envfile/                  Temp env-file for credential security
 │   ├── history/                  Run history storage
 │   ├── keys/                    Key management (add, remove, test, list)
@@ -614,16 +723,33 @@ agent-runtime/
 │   └── settings.json             Default Claude Code settings
 ├── configs/
 │   ├── airun.env.example          Config file template
-│   ├── profiles/                 Profile templates (dev, text, default)
+│   ├── profiles/                 Profile templates
 │   └── init/                     Container init manifest
 ├── scripts/
 │   ├── setup.sh                  Host setup script
 │   └── init-container.sh         Container post-init script
+├── test/e2e/                     CLI and Docker regression checks
+├── docs/                         Validation reports and proxy setup checks
 └── examples/
     ├── skills/                   Example skills
     ├── agents/                   Example agent definitions
     └── commands/                 Example commands
 ```
+
+## Development checks
+
+```bash
+go build -o bin/airun ./cmd/airun/
+go vet ./...
+go test -race ./...
+golangci-lint run
+bash test/e2e/run-all.sh --no-build
+```
+
+The e2e harness requires Bash 4+. On macOS, select an installed Bash 4+ binary
+instead of `/bin/bash`. The default suite makes no model API calls; it includes
+a snapshot permissions check against Docker when the local image is available.
+See [e2e documentation](test/e2e/README.md) for filters and optional provider tests.
 
 ## Platform support
 
@@ -649,9 +775,9 @@ Running `airun` natively on Windows (without WSL) will hit several issues:
 ## Roadmap
 
 - [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
-- [ ] Anthropic API as a first-party provider
+- [x] Direct Anthropic API provider routing
 - [ ] Container init from profile (auto-install plugins, npm/pip packages)
-- [ ] Proxy: auto-reload users on file change (without SIGHUP)
+- [x] Proxy: auto-reload users on file change (without SIGHUP)
 - [ ] Proxy: per-user daily usage limits and quotas
 
 ## License

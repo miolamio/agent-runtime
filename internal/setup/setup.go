@@ -23,6 +23,9 @@ func Run() error {
 	fmt.Println()
 
 	envFile := filepath.Join(home, ".airun", "config.env")
+	if err := os.MkdirAll(filepath.Dir(envFile), 0700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
 	configureKeys := true
 	if _, err := os.Stat(envFile); err == nil {
 		configureKeys = false
@@ -136,8 +139,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "    Warning: could not create %s: %v\n", d, err)
-			continue
+			return fmt.Errorf("create %s: %w", d, err)
 		}
 		fmt.Printf("    %s\n", d)
 	}

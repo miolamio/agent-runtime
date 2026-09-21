@@ -149,6 +149,14 @@ case "${1:-}" in
         touch "$vols"
         prev=""
         for arg in "$@"; do
+            if [[ "$prev" == "--name" ]]; then
+                container_name="$arg"
+                # mkdir is atomic, including between concurrent shim processes.
+                if ! mkdir "${DOCKER_SHIM_LOG}.${arg}" 2>/dev/null; then
+                    echo "container name already in use: $arg" >&2
+                    exit 1
+                fi
+            fi
             if [[ "$prev" == "-v" ]]; then
                 if [[ "${arg:0:1}" != "/" ]]; then
                     vol="${arg%%:*}"
@@ -175,10 +183,27 @@ case "${1:-}" in
         # the container output. We just emit something plausible and exit 0.
         if [[ "$1" == "create" ]]; then
             echo "shim-container-id"
+        else
+            printf 'output:%s\n' "${container_name:-unnamed}"
         fi
         exit 0
         ;;
-    start|cp|rm|ps|inspect)
+    inspect)
+        echo "${DOCKER_SHIM_EXIT_CODE:-0}"
+        exit 0
+        ;;
+    cp)
+        if [[ "${2:-}" == *:/workspace/. && "${DOCKER_SHIM_FAIL_EXPORT:-0}" == 1 ]]; then
+            echo "simulated export failure" >&2
+            exit 1
+        fi
+        exit 0
+        ;;
+    start)
+        printf 'output:%s\n' "${@: -1}"
+        exit 0
+        ;;
+    rm|ps)
         exit 0
         ;;
     *)

@@ -3,10 +3,12 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +28,7 @@ const (
 )
 
 type RunOpts struct {
+	runID       string
 	Prompt      string
 	Provider    string // z/zai | m/mm/minimax | k/kimi | r/remote
 	Profile     string // profile name (loads skills, settings, provider)
@@ -70,16 +73,26 @@ func appendClaudeCmd(args []string, opts RunOpts) []string {
 
 // recordHistoryEntry saves a run record to ~/.airun/runs/ and prints the
 // final `done in …` summary line. Shared across every non-interactive flow.
-func recordHistoryEntry(opts RunOpts, provider, model string, start time.Time, exitCode int, output string) {
+func recordHistoryEntry(opts RunOpts, provider, model string, start time.Time, runErr error, recoveryContainer, output string) {
+	exitCode := 0
+	message := ""
+	if runErr != nil {
+		exitCode = 1
+		message = runErr.Error()
+	}
 	rec := history.RunRecord{
-		Timestamp:  time.Now().Format("2006-01-02_15-04-05"),
-		Profile:    opts.Profile,
-		Provider:   provider,
-		Model:      model,
-		Prompt:     opts.Prompt,
-		DurationMs: time.Since(start).Milliseconds(),
-		ExitCode:   exitCode,
-		RunDir:     history.NewRunDir(opts.Profile, provider),
+		RunID:             opts.runID,
+		AgentName:         opts.Name,
+		Error:             message,
+		RecoveryContainer: recoveryContainer,
+		Timestamp:         time.Now().Format("2006-01-02_15-04-05"),
+		Profile:           opts.Profile,
+		Provider:          provider,
+		Model:             model,
+		Prompt:            opts.Prompt,
+		DurationMs:        time.Since(start).Milliseconds(),
+		ExitCode:          exitCode,
+		RunDir:            history.RunDir(opts.runID, opts.Profile, provider),
 	}
 	if err := history.Save(rec, output); err != nil {
 		fmt.Fprintf(os.Stderr, "[airun] warning: could not save run history: %v\n", err)
@@ -107,16 +120,25 @@ func appendStateAndExtras(args []string, cfg *config.Config, opts RunOpts, extra
 	if opts.Browser != "" {
 		args = append(args, "-e", "AIRUN_BROWSER="+opts.Browser)
 		if opts.Browser == "vnc" || opts.Browser == "both" {
-			args = append(args, "-p", "6080:6080")
+			args = append(args, "-p", "127.0.0.1:6080:6080")
 		}
 		if opts.Browser == "cdp" || opts.Browser == "both" {
-			args = append(args, "-p", "9222:9222")
+			args = append(args, "-p", "127.0.0.1:9222:9222")
 		}
 	}
 	return args
 }
 
 func Run(cfg *config.Config, opts RunOpts) error {
+	mode := cfg.Mode
+	if mode == "" {
+		mode = "snapshot"
+	}
+	if mode != "snapshot" && mode != "bind" {
+		return fmt.Errorf("invalid ARUN_MODE %q: expected snapshot or bind", mode)
+	}
+	opts.runID = history.NewRunID()
+
 	// Load profile if specified
 	var extraVolumes []string
 	var extraEnv []string
@@ -185,29 +207,10 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		mount = cfg.Workspace
 	}
 
-	if opts.Interactive {
-		fmt.Fprintf(os.Stderr, "[airun] interactive: provider=%s model=%s mount=%s\n", provider, model, mount)
-		return runDocker(cfg, RunOpts{Interactive: true, Mount: mount, Profile: opts.Profile, NoState: opts.NoState, Browser: opts.Browser}, provider, model, extraVolumes, extraEnv)
-	}
-
-	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s\n", provider, model, mount)
-
-	mode := cfg.Mode
-	if mode == "" {
-		mode = "bind"
-	}
+	fmt.Fprintf(os.Stderr, "[airun] provider=%s model=%s workspace=%s mode=%s\n", provider, model, mount, mode)
 	snapshotIn := mode == "snapshot"
-
-	subOpts := RunOpts{
-		Prompt:   opts.Prompt,
-		Mount:    mount,
-		Output:   opts.Output,
-		Profile:  opts.Profile,
-		NoState:  opts.NoState,
-		Loop:     opts.Loop,
-		MaxLoops: opts.MaxLoops,
-		Browser:  opts.Browser,
-	}
+	subOpts := opts
+	subOpts.Mount = mount
 
 	// Any flow that needs docker cp (snapshot workspace in, or export workspace out)
 	// goes through the create/start/rm lifecycle; simple bind+no-export uses docker run --rm.
@@ -239,7 +242,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	} else {
 		args = []string{"run", "--rm"}
 	}
-	args = append(args, "--env-file", envPath)
+	args = append(args, "--name", "airun-"+opts.runID, "--env-file", envPath)
 
 	if opts.Mount != "" {
 		args = append(args, "-v", opts.Mount+":/workspace")
@@ -274,12 +277,7 @@ func runDocker(cfg *config.Config, opts RunOpts, provider, model string, extraVo
 	cmd.Stdin = os.Stdin
 
 	err = cmd.Run()
-	exitCode := 0
-	if err != nil {
-		exitCode = 1
-	}
-
-	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
+	recordHistoryEntry(opts, provider, model, start, err, "", outputBuf.String())
 
 	return err
 }
@@ -297,7 +295,7 @@ func runContainerCreate(
 	copyOut string,
 	namePrefix string,
 ) error {
-	containerName := fmt.Sprintf("%s-%d", namePrefix, time.Now().Unix())
+	containerName := namePrefix + "-" + opts.runID
 
 	envPath, err := envfile.Write(append(cfg.ContainerEnvWithModel(provider, model), extraEnv...))
 	if err != nil {
@@ -306,12 +304,20 @@ func runContainerCreate(
 	defer envfile.Cleanup(envPath)
 
 	createArgs := []string{"create", "--name", containerName, "--env-file", envPath}
+	if opts.Interactive {
+		createArgs = append(createArgs, "-it")
+	}
+	if copyIn {
+		createArgs = append(createArgs, "-e", "AIRUN_WORKSPACE_MODE=snapshot")
+	}
 	if !copyIn && opts.Mount != "" {
 		createArgs = append(createArgs, "-v", opts.Mount+":/workspace")
 	}
 	createArgs = appendStateAndExtras(createArgs, cfg, opts, extraVolumes)
 	createArgs = append(createArgs, ImageName)
-	createArgs = appendClaudeCmd(createArgs, opts)
+	if !opts.Interactive {
+		createArgs = appendClaudeCmd(createArgs, opts)
+	}
 
 	if copyIn {
 		fmt.Fprintf(os.Stderr, "[airun] snapshot mode: creating container %s\n", containerName)
@@ -333,29 +339,50 @@ func runContainerCreate(
 	var outputBuf bytes.Buffer
 	start := time.Now()
 
-	startCmd := exec.Command("docker", "start", "-a", containerName)
+	startArgs := []string{"start", "-a"}
+	if opts.Interactive {
+		startArgs = append(startArgs, "-i")
+	}
+	startCmd := exec.Command("docker", append(startArgs, containerName)...)
+	startCmd.Stdin = os.Stdin
 	startCmd.Stdout = io.MultiWriter(os.Stdout, &outputBuf)
 	startCmd.Stderr = os.Stderr
 	runErr := startCmd.Run()
 
-	exitCode := 0
-	if runErr != nil {
-		exitCode = 1
+	// docker start's exit status can describe attachment rather than the process.
+	if runErr == nil {
+		status, err := exec.Command("docker", "inspect", "--format", "{{.State.ExitCode}}", containerName).Output()
+		if err != nil {
+			runErr = fmt.Errorf("inspect container exit status: %w", err)
+		} else if code, err := strconv.Atoi(strings.TrimSpace(string(status))); err != nil {
+			runErr = fmt.Errorf("invalid container exit status %q", strings.TrimSpace(string(status)))
+		} else if code != 0 {
+			runErr = fmt.Errorf("container exited with code %d", code)
+		}
 	}
 
+	var exportErr error
 	if copyOut != "" {
 		if err := os.MkdirAll(copyOut, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "[airun] warning: cannot create output dir %s: %v\n", copyOut, err)
-		}
-		if cpOut, err := exec.Command("docker", "cp", containerName+":/workspace/.", copyOut).CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "[airun] warning: docker cp failed: %s\n", string(cpOut))
+			exportErr = fmt.Errorf("create output directory %s: %w", copyOut, err)
+		} else if out, err := exec.Command("docker", "cp", containerName+":/workspace/.", copyOut).CombinedOutput(); err != nil {
+			exportErr = fmt.Errorf("export workspace to %s: %s: %w", copyOut, out, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "[airun] exported workspace to %s\n", copyOut)
 		}
 	}
-
-	cleanupContainer(containerName)
-	recordHistoryEntry(opts, provider, model, start, exitCode, outputBuf.String())
+	recoveryContainer := ""
+	if exportErr != nil {
+		recoveryContainer = containerName
+		fmt.Fprintf(os.Stderr, "[airun] export failed; result preserved in container %s (destination may be partial).\n", containerName)
+		fmt.Fprintf(os.Stderr, "[airun] recover: docker cp %s:/workspace/. <recovery-directory>\n", containerName)
+	} else {
+		cleanupContainer(containerName)
+	}
+	runErr = errors.Join(runErr, exportErr)
+	if !opts.Interactive {
+		recordHistoryEntry(opts, provider, model, start, runErr, recoveryContainer, outputBuf.String())
+	}
 
 	return runErr
 }

@@ -4,6 +4,11 @@ set -e
 _USER="${ARUN_USER:-claude}"
 _HOME="/home/${_USER}"
 
+# Snapshot data is a private copy; never change ownership of a live host mount.
+if [ "${AIRUN_WORKSPACE_MODE:-bind}" = "snapshot" ]; then
+    chown -hR "${_USER}:${_USER}" /workspace
+fi
+
 # ── SSH known hosts (generated at build time via ssh-keyscan) ──
 mkdir -p "${_HOME}/.ssh"
 chmod 700 "${_HOME}/.ssh"
@@ -142,11 +147,11 @@ if [ "${AIRUN_BROWSER}" = "vnc" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
     sleep 0.5
     x11vnc -display :99 -forever -shared -nopw -rfbport 5900 &>/dev/null &
     /opt/noVNC/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &>/dev/null &
-    echo "[airun] noVNC available at http://localhost:6080" >&2
+    echo "[airun] noVNC available at http://127.0.0.1:6080" >&2
 fi
 
 if [ "${AIRUN_BROWSER}" = "cdp" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
-    echo "[airun] CDP remote debugging enabled on port 9222" >&2
+    echo "[airun] CDP host port: 127.0.0.1:9222" >&2
     export PLAYWRIGHT_CHROMIUM_ARGS="--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0"
 fi
 

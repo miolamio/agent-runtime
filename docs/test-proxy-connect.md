@@ -1,6 +1,14 @@
 # Test Cases: Proxy Connect / Disconnect
 
-## Prerequisites
+## Automated regressions
+
+Run `go test ./internal/proxy -run 'TestConnect|TestDisconnect'` for isolated
+fixtures and a local HTTP stub. No real proxy, token, or model is needed.
+With Bash/jq and `pwsh` on PATH the suite checks every pair of Go/Bash/PowerShell
+connect and disconnect clients, existing/new files, repeated operations, and
+edits made after connect. Unavailable clients are explicitly skipped.
+
+## Manual test prerequisites
 
 - Proxy server running: `airun proxy serve` (or any machine with proxy)
 - Known proxy URL and valid token (e.g. `sk-ai-...`)
@@ -37,7 +45,7 @@ jq '{hasCompletedOnboarding, hasTrustDialogAccepted, lastOnboardingVersion, _air
 **Expected:**
 - `settings.json` has all 6 env keys
 - `claude.json` has `hasCompletedOnboarding: true`, `hasTrustDialogAccepted: true`
-- `claude.json` has `_airunManaged: true`
+- Both files have `_airunManaged: true` and a version 1 `_airunBackup` journal
 - `customApiKeyResponses.approved` contains last 20 chars of the token
 
 **Smoke test:**
@@ -65,8 +73,10 @@ ls -la ~/.claude.json 2>/dev/null || echo "REMOVED (expected if we created it)"
 ```
 
 **Expected:**
-- `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, model keys are `null`/missing
-- `~/.claude.json` is deleted (if `_airunManaged` was true)
+- Managed env keys regain their pre-connect values, or are absent if airun added them
+- Newly created documents are deleted only if no user data remains after undo
+- Pre-existing documents are preserved, including projects, userID, and approvals
+- A legacy `_airunManaged: true` without `_airunBackup` never authorizes deletion
 - Other keys in `settings.json` (permissions, plugins, etc.) are preserved
 
 ---
@@ -118,7 +128,7 @@ jq '.permissions' ~/.claude/settings.json
 **Expected:**
 - `MY_CUSTOM_VAR` = `"keep-me"` (still there)
 - `permissions` block untouched
-- Only proxy-related keys removed
+- Only airun changes are undone; later user edits are retained
 
 ---
 
@@ -224,7 +234,7 @@ curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts
 .\scripts\connect-proxy.ps1 --disconnect
 ```
 
-**Verify:** Proxy keys removed, user settings preserved.
+**Verify:** Previous managed values restored, later user edits and other approvals preserved.
 
 ---
 

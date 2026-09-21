@@ -83,3 +83,18 @@ against GLM-5.3 unless opted into explicitly with `--include-non-glm`.
 | `AIRUN_BIN` | Path to airun binary (defaults to `bin/airun` in the repo) |
 | `E2E_WITH_NETWORK` | Set to `1` by `--with-network` flag |
 | `E2E_INCLUDE_NON_GLM` | Set to `1` by `--include-non-glm` flag |
+
+P1 regression coverage (offline): `99-errors/p1-regressions.sh` uses isolated
+HOME directories and a Docker shim to exercise fresh init, invalid modes,
+96 concurrent CLI runs across bind/snapshot/export, and failed export recovery.
+`50-workspace/snapshot-permissions.sh` uses the real local Docker image with
+`--network none`, a stub Claude command, and the working-tree entrypoint. It
+checks UID 1001 writes in snapshots and that a read-only host bind is untouched.
+It skips when Docker/the image is unavailable. No provider requests are made.
+
+Use Bash 4+ for the harness (on macOS, for example,
+`PATH=/opt/homebrew/bin:$PATH /opt/homebrew/bin/bash test/e2e/run-all.sh`).
+Go regressions run with `go test -race ./...`. Cross-client settings tests also
+exercise Bash/jq and PowerShell when `pwsh` is on PATH; unavailable clients skip
+explicitly. Production-cost auth benchmark:
+`go test ./internal/proxy/users -run '^$' -bench BenchmarkUnknownTokenProductionCost`.

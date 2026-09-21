@@ -85,8 +85,27 @@ func Serve(configPath, usersPath, listenOverride string) error {
 
 // Init creates proxy.yaml and users.json with defaults.
 func Init(configPath, usersPath string) error {
-	if _, err := os.Stat(configPath); err == nil {
-		return fmt.Errorf("%s already exists", configPath)
+	paths := []string{configPath, usersPath}
+	missing := make(map[string]bool)
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			missing[path] = true
+		case err != nil:
+			return fmt.Errorf("inspect %s: %w", path, err)
+		case !info.Mode().IsRegular():
+			return fmt.Errorf("%s is not a regular file", path)
+		}
+	}
+	if len(missing) == 0 {
+		return fmt.Errorf("proxy configuration already exists: %s and %s", configPath, usersPath)
+	}
+	// Check both parent directories before publishing either file.
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return fmt.Errorf("create parent for %s: %w", path, err)
+		}
 	}
 
 	template := `# Proxy Configuration
@@ -119,19 +138,47 @@ providers:
 # tls_key: "/path/to/key.pem"
 `
 
-	if err := os.WriteFile(configPath, []byte(template), 0600); err != nil {
-		return fmt.Errorf("write %s: %w", configPath, err)
+	contents := []string{template, "[]\n"}
+	var created []string
+	for i, path := range paths {
+		if !missing[path] {
+			continue
+		}
+		if err := createInitialFile(path, []byte(contents[i])); err != nil {
+			for _, prior := range created {
+				_ = os.Remove(prior)
+			}
+			return fmt.Errorf("initialize %s: %w", path, err)
+		}
+		created = append(created, path)
 	}
-	fmt.Printf("  Created: %s\n", configPath)
-
-	if err := os.WriteFile(usersPath, []byte("[]\n"), 0600); err != nil {
-		return fmt.Errorf("write %s: %w", usersPath, err)
+	for _, path := range created {
+		fmt.Printf("  Created: %s\n", path)
 	}
-	fmt.Printf("  Created: %s\n", usersPath)
 
 	fmt.Println()
 	fmt.Printf("  Edit %s to add provider API keys.\n", configPath)
 	return nil
+}
+
+// Publish fully-written defaults without ever replacing an existing file.
+func createInitialFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".airun-init-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Link(f.Name(), path)
 }
 
 // UserAdd adds a user and prints the token.
