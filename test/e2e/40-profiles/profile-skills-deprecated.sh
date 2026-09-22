@@ -21,7 +21,7 @@ echo "content" > "$th/.airun/skills/legacy-skill/SKILL.md"
 mk_test_profile "$th" "$tag" "skills:
   - legacy-skill"
 
-out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" -p "$tag" "ping" 2>&1 || true)
+out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" --profile "$tag" "ping" 2>&1 || true)
 
 assert_contains "$out" "deprecated 'skills' field" \
     "deprecation warning surfaces on stderr"

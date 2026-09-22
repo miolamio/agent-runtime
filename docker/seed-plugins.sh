@@ -1,97 +1,79 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-# Seed Claude Code plugins into the container at build time.
-# Clones marketplace repos and extracts plugin files into the cache structure
-# that Claude Code expects. JSON configs are generated at runtime by entrypoint.sh.
-
+# Capture native installer output once, explicitly preserving the image's
+# original three native plugins and its independently supplied direct skills.
 USERNAME="${1:-claude}"
 HOME_DIR="/home/${USERNAME}"
-PLUGINS_DIR="${HOME_DIR}/.claude/plugins"
-CACHE_DIR="${PLUGINS_DIR}/cache"
-MKT_DIR="${PLUGINS_DIR}/marketplaces"
+CONFIG_DIR="${HOME_DIR}/.claude"
+PLUGINS_DIR="${CONFIG_DIR}/plugins"
+BASELINE=/opt/airun/profile-baseline
+BASE_PLUGINS=(context7@claude-plugins-official skill-creator@claude-plugins-official superpowers@claude-plugins-official)
 
-log() { echo "[seed-plugins] $*"; }
+mkdir -p "$CONFIG_DIR" "$BASELINE"
+chown "${USERNAME}:${USERNAME}" "$CONFIG_DIR"
+# Native installation writes settings.json. Seed defaults first so subsequent
+# unprofiled startup does not mistake plugin-only settings for a complete file.
+cp "$BASELINE/settings.json" "$CONFIG_DIR/settings.json"
+chown "${USERNAME}:${USERNAME}" "$CONFIG_DIR/settings.json"
+CLAUDE_VERSION=$(gosu "$USERNAME" claude --version | awk '{print $1}')
+jq -n --arg version "$CLAUDE_VERSION" '{hasCompletedOnboarding:true,hasTrustDialogAccepted:true,lastOnboardingVersion:$version,autoUpdaterStatus:"disabled",projects:{}}' > "$CONFIG_DIR/.claude.json"
+chown "${USERNAME}:${USERNAME}" "$CONFIG_DIR/.claude.json"
 
-mkdir -p "$CACHE_DIR" "$MKT_DIR"
-
-# ── 1. Clone claude-plugins-official marketplace ──
-log "Cloning claude-plugins-official marketplace..."
-git clone --depth 1 https://github.com/anthropics/claude-plugins-official.git \
-    "${MKT_DIR}/claude-plugins-official"
-CPO_SHA=$(git -C "${MKT_DIR}/claude-plugins-official" rev-parse --short=12 HEAD)
-log "claude-plugins-official at ${CPO_SHA}"
-
-# ── 2. Extract context7 plugin (MCP server) ──
-log "Extracting context7 plugin..."
-CTX_CACHE="${CACHE_DIR}/claude-plugins-official/context7/${CPO_SHA}"
-mkdir -p "$CTX_CACHE"
-cp -r "${MKT_DIR}/claude-plugins-official/external_plugins/context7/"* "$CTX_CACHE/" 2>/dev/null || true
-# context7 is an external plugin — needs .claude-plugin/plugin.json and .mcp.json
-mkdir -p "$CTX_CACHE/.claude-plugin"
-cat > "$CTX_CACHE/.claude-plugin/plugin.json" <<'PJEOF'
-{
-  "name": "context7",
-  "description": "Upstash Context7 MCP server for up-to-date documentation lookup. Pull version-specific documentation and code examples directly from source repositories into your LLM context.",
-  "author": { "name": "Upstash" }
+native() {
+    gosu "$USERNAME" env HOME="$HOME_DIR" CLAUDE_CONFIG_DIR="$CONFIG_DIR" DISABLE_AUTOUPDATER=1 claude plugin "$@"
 }
-PJEOF
-cat > "$CTX_CACHE/.mcp.json" <<'MCPEOF'
-{
-  "context7": {
-    "command": "npx",
-    "args": ["-y", "@upstash/context7-mcp"]
+
+native marketplace add anthropics/claude-plugins-official
+native marketplace add miolamio/agent-skills
+native marketplace add anthropics/skills
+for reference in "${BASE_PLUGINS[@]}"; do
+    native install "$reference" --scope user
+    installed_path=$(jq -er --arg ref "$reference" '.plugins[$ref][] | select(.scope == "user") | .installPath' "$PLUGINS_DIR/installed_plugins.json")
+    test -d "$installed_path"
+    test -f "$installed_path/.claude-plugin/plugin.json"
+    jq -e --arg name "${reference%@*}" '.name == $name' "$installed_path/.claude-plugin/plugin.json" >/dev/null
+    native validate "$installed_path"
+done
+test -f "$PLUGINS_DIR/known_marketplaces.json"
+jq -e '.permissions.defaultMode == "bypassPermissions"' "$CONFIG_DIR/settings.json" >/dev/null
+
+SKILLS_SOURCE="$PLUGINS_DIR/marketplaces/miolamio-agent-skills/skills"
+test -d "$SKILLS_SOURCE"
+mkdir -p "$CONFIG_DIR/skills"
+cp -a "$SKILLS_SOURCE/." "$CONFIG_DIR/skills/"
+for skill in ascii-art-beautifier en-ru-translator-adv krrkt ru-editor ru-textovod telegram-cli; do
+    test -f "$CONFIG_DIR/skills/$skill/SKILL.md"
+done
+chown -R "${USERNAME}:${USERNAME}" "$CONFIG_DIR/skills"
+cp -a "$PLUGINS_DIR" "$BASELINE/plugins"
+cp -a "$CONFIG_DIR/skills" "$BASELINE/skills"
+jq -n '{version:1,native_plugins:["context7@claude-plugins-official","skill-creator@claude-plugins-official","superpowers@claude-plugins-official"]}' > "$BASELINE/baseline.json"
+# Record all captured files, not just entrypoint manifests. The adapter verifies
+# this inventory before it uses the image baseline for a profile launch.
+node --input-type=module - "$BASELINE" <<'NODE'
+import * as fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+const root = process.argv[2];
+const files = [];
+function walk(relative = '') {
+  for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true }).sort((a,b) => a.name.localeCompare(b.name))) {
+    if (entry.name === '.git') continue;
+    const name = path.join(relative, entry.name);
+    const absolute = path.join(root, name);
+    if (entry.isDirectory()) walk(name);
+    else if (entry.isFile()) {
+      const bytes = fs.readFileSync(absolute);
+      files.push({path:name,sha256:createHash('sha256').update(bytes).digest('hex'),size:bytes.length,mode:fs.statSync(absolute).mode & 0o777});
+    } else if (entry.isSymbolicLink()) {
+      const resolved = fs.realpathSync(absolute);
+      if (!resolved.startsWith(root + path.sep)) throw Error(`baseline symlink leaves capture: ${name}`);
+      files.push({path:name,symlink:fs.readlinkSync(absolute)});
+    } else throw Error(`unsupported baseline file: ${name}`);
   }
 }
-MCPEOF
-
-# ── 3. Extract skill-creator plugin ──
-log "Extracting skill-creator plugin..."
-SC_CACHE="${CACHE_DIR}/claude-plugins-official/skill-creator/${CPO_SHA}"
-mkdir -p "$SC_CACHE"
-cp -r "${MKT_DIR}/claude-plugins-official/plugins/skill-creator/"* "$SC_CACHE/" 2>/dev/null || true
-cp -r "${MKT_DIR}/claude-plugins-official/plugins/skill-creator/.claude-plugin" "$SC_CACHE/" 2>/dev/null || true
-
-# ── 4. Clone superpowers plugin (external repo) ──
-log "Cloning superpowers plugin..."
-git clone --depth 1 https://github.com/obra/superpowers.git /tmp/superpowers
-SP_VER=$(jq -r '.version // "latest"' /tmp/superpowers/package.json 2>/dev/null || echo "latest")
-SP_SHA=$(git -C /tmp/superpowers rev-parse --short=12 HEAD)
-SP_CACHE="${CACHE_DIR}/claude-plugins-official/superpowers/${SP_VER}"
-mkdir -p "$SP_CACHE"
-# Copy everything except .git
-cd /tmp/superpowers && find . -mindepth 1 -maxdepth 1 -not -name '.git' -exec cp -a {} "$SP_CACHE/" \;
-cd / && rm -rf /tmp/superpowers
-log "superpowers v${SP_VER} at ${SP_SHA}"
-
-# ── 5. Clone miolamio/agent-skills marketplace ──
-log "Cloning miolamio-agent-skills marketplace..."
-git clone --depth 1 https://github.com/miolamio/agent-skills.git \
-    "${MKT_DIR}/miolamio-agent-skills"
-MAS_SHA=$(git -C "${MKT_DIR}/miolamio-agent-skills" rev-parse --short=12 HEAD)
-
-# Also copy skills to ~/.claude/skills/ for direct access
-mkdir -p "${HOME_DIR}/.claude/skills"
-cp -r "${MKT_DIR}/miolamio-agent-skills/skills/"* "${HOME_DIR}/.claude/skills/" 2>/dev/null || true
-
-# NOTE: anthropic-agent-skills is deliberately NOT cloned here. Claude Code
-# >=2.1.x reserves that marketplace name and only accepts it from the anthropics
-# GitHub source, so entrypoint.sh registers it at runtime with
-# `claude plugin marketplace add anthropics/skills`. A build-time clone would be
-# dead weight the CLI never reads.
-
-# ── 6. Save metadata for entrypoint.sh to generate JSON configs ──
-cat > "${PLUGINS_DIR}/.seed-metadata.json" <<METAEOF
-{
-  "cpo_sha": "${CPO_SHA}",
-  "sp_ver": "${SP_VER}",
-  "sp_sha": "${SP_SHA}",
-  "mas_sha": "${MAS_SHA}",
-  "seeded_at": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-}
-METAEOF
-
-# ── 7. Fix ownership ──
-chown -R "${USERNAME}:${USERNAME}" "${PLUGINS_DIR}" "${HOME_DIR}/.claude/skills"
-
-log "Done: context7, skill-creator, superpowers + miolamio-agent-skills (anthropic-agent-skills registers at runtime)"
+walk();
+fs.writeFileSync(path.join(root, 'inventory.json'), JSON.stringify({version:1,files}, null, 2) + '\n');
+NODE
+echo "[seed-plugins] verified native plugins and direct skills captured in $BASELINE"

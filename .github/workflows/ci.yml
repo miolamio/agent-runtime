@@ -34,8 +34,29 @@ jobs:
       - name: go test -race
         run: go test -race ./...
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: profile adapter and history tests (Linux, non-root)
+        run: node --test docker/component-adapter.test.mjs docker/profile-start.test.mjs
+
       - name: e2e (offline, docker-shim)
-        run: bash test/e2e/run-all.sh --no-build
+        run: AIRUN_TEST_ENV=/dev/null bash test/e2e/run-all.sh --no-build
+
+  profile-activation:
+    name: real Claude profile activation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: build compatible image
+        run: docker build -t agent-runtime:profiles-dev docker/
+      - name: exercise native activation without external networking
+        run: bash test/profile-activation/run.sh
+      - name: exercise production entrypoint and fresh state
+        run: bash test/profile-entrypoint/run.sh
 
   lint:
     name: golangci-lint

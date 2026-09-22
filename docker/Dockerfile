@@ -3,12 +3,14 @@
 # Usage: airun "prompt" | airun shell
 
 FROM buildpack-deps:bookworm-scm
+LABEL io.airun.profile-manifest-version="1"
 
 ARG USERNAME=claude
 ARG GIT_DELTA_VERSION=0.19.2
 ARG TZ=UTC
 # Pass --build-arg CLAUDE_BUST_CACHE=$(date +%s) to force Claude Code reinstall
 ARG CLAUDE_BUST_CACHE=1
+ARG CLAUDE_VERSION=2.1.278
 
 ENV TERM=xterm-256color \
     COLORTERM=truecolor \
@@ -61,7 +63,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # ── Claude Code CLI (install as claude user so it lands in /home/claude/.local/bin) ──
 # Use CLAUDE_BUST_CACHE build-arg to force reinstall: --build-arg CLAUDE_BUST_CACHE=$(date +%s)
 USER ${USERNAME}
-RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" && curl -fsSL "https://claude.ai/install.sh" | bash
+RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" \
+    && curl -fsSL "https://claude.ai/install.sh" -o /tmp/install-claude.sh \
+    && bash /tmp/install-claude.sh "${CLAUDE_VERSION}" \
+    && claude --version | grep -F "${CLAUDE_VERSION} " \
+    && rm /tmp/install-claude.sh
 USER root
 
 # ── Node.js LTS (for Playwright and skill scripts) ──
@@ -75,7 +81,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
 # (open, snapshot, click, fill, run-code, video-*). It pulls playwright as a
 # dependency; do not install playwright separately to avoid a version mismatch
 # between the CLI's bundled playwright and a standalone one.
-RUN npm install -g @playwright/cli
+RUN npm install -g @playwright/cli claude-code-templates@1.29.6
 USER ${USERNAME}
 # `install-browser chromium` pulls Chromium, headless shell, and FFmpeg;
 # Firefox/WebKit are skipped on purpose — GTK deps aren't installed and the
@@ -84,7 +90,8 @@ RUN playwright-cli install-browser chromium
 USER root
 
 # ── Plugins & Skills Marketplace ──
-ARG PLUGINS_BUST_CACHE=3
+ARG PLUGINS_BUST_CACHE=4
+COPY settings.json /opt/airun/profile-baseline/settings.json
 COPY seed-plugins.sh /tmp/seed-plugins.sh
 RUN chmod +x /tmp/seed-plugins.sh \
     && echo "plugins-cache-bust: ${PLUGINS_BUST_CACHE}" \
@@ -99,6 +106,7 @@ RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \
 # ── Default config ──
 COPY --chown=${USERNAME}:${USERNAME} settings.json /home/${USERNAME}/.claude-init/settings.json
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY profile-start.mjs component-adapter.mjs /usr/local/lib/airun/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /workspace

@@ -28,7 +28,17 @@ if [ -f /tmp/host-gitconfig ]; then
     chown "${_USER}:${_USER}" "${_HOME}/.gitconfig" 2>/dev/null || true
 fi
 
-# ── Seed Claude Code settings ──
+# Profile configuration is prepared only by the non-root adapter/supervisor.
+# Named volumes start root-owned; initialize mount roots, never host inputs.
+if [ -n "${AIRUN_PROFILE_MANIFEST:-}" ]; then
+    for _runtime_dir in "${AIRUN_COMPONENT_CACHE:?component cache is required}" "${AIRUN_PROFILE_STATE:-}"; do
+        if [ -n "$_runtime_dir" ]; then
+            mkdir -p "$_runtime_dir"
+            chown "${_USER}:${_USER}" "$_runtime_dir"
+        fi
+    done
+else
+# ── Seed Claude Code settings (legacy, no-profile startup) ──
 INIT_DIR="${_HOME}/.claude-init"
 CONFIG_DIR="${_HOME}/.claude"
 if [ -d "$INIT_DIR" ]; then
@@ -138,6 +148,7 @@ echo "[airun] claude.json: onboarding=${INSTALLED_VER}" >&2
 
 # ── Ready signal ──
 echo "[airun] ready ts=$(date +%s)" >&2
+fi
 
 # ── Browser display (VNC / CDP) ──
 if [ "${AIRUN_BROWSER}" = "vnc" ] || [ "${AIRUN_BROWSER}" = "both" ]; then
@@ -163,4 +174,8 @@ if [ "${1#-}" != "${1}" ] || [ -z "$(command -v "${1}" 2>/dev/null)" ]; then
     set -- claude "$@"
 fi
 
+export HOME="$_HOME"
+if [ -n "${AIRUN_PROFILE_MANIFEST:-}" ]; then
+    exec gosu "$_USER" node /usr/local/lib/airun/profile-start.mjs "$@"
+fi
 exec gosu "$_USER" "$@"

@@ -1,0 +1,15 @@
+name: reviewer
+description: Code review with an explicitly selected specialist agent
+provider: z
+plugins: []
+settings:
+  effortLevel: high
+  agent: code-reviewer
+components:
+  agents:
+    - development-tools/code-reviewer
+  skills: []
+  commands: []
+  mcps: []
+  mods: []
+  plugins: []

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "profile_key": "entrypoint-reviewer",
+  "settings": {
+    "agent": "code-reviewer",
+    "hooks": {
+      "SessionStart": [{"hooks": [{"type": "command", "command": "node /entrypoint-test/proof.mjs"}]}]
+    }
+  },
+  "native_plugins": [],
+  "components": {
+    "agents": [{"id": "development-tools/code-reviewer"}],
+    "skills": [],
+    "commands": [],
+    "mcps": [],
+    "mods": [],
+    "plugins": []
+  }
+}

@@ -2,7 +2,6 @@ package runner
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,15 +22,19 @@ const (
 	// image. Exported because `airun rebuild` in cmd/airun references it.
 	ImageName = "agent-runtime:latest"
 
-	stateVolumeName = "airun-claude-state"
-	stateMountPath  = "/home/claude/.claude"
+	stateVolumeName       = "airun-claude-state"
+	stateMountPath        = "/home/claude/.claude"
+	profileStateMountPath = "/var/lib/airun/state"
+	componentVolumeName   = "airun-components-cache"
+	componentMountPath    = "/var/lib/airun/components"
+	hostAgentsMountPath   = "/run/airun/host-agents"
 )
 
 type RunOpts struct {
 	runID       string
 	Prompt      string
 	Provider    string // z/zai | m/mm/minimax | k/kimi | r/remote
-	Profile     string // profile name (loads skills, settings, provider)
+	Profile     string // YAML selector (components, settings, provider)
 	Model       string // model override (e.g. kimi-k2.5, glm-5.3)
 	Loop        bool
 	MaxLoops    int
@@ -109,13 +112,27 @@ func recordHistoryEntry(opts RunOpts, provider, model string, start time.Time, r
 // callers because bind and snapshot flows differ on that point.
 func appendStateAndExtras(args []string, cfg *config.Config, opts RunOpts, extraVolumes []string) []string {
 	if !opts.NoState {
-		args = append(args, "-v", stateVolumeForProfile(opts.Profile)+":"+stateMountPath)
+		target := stateMountPath
+		if opts.Profile != "" {
+			target = profileStateMountPath
+			args = append(args, "-e", "AIRUN_PROFILE_STATE="+target)
+		}
+		args = append(args, "-v", stateVolumeForProfile(opts.Profile)+":"+target)
+	}
+	if opts.Profile != "" {
+		args = append(args, "-v", componentVolumeName+":"+componentMountPath,
+			"-e", "AIRUN_COMPONENT_CACHE="+componentMountPath)
 	}
 	for _, v := range extraVolumes {
 		args = append(args, "-v", v)
 	}
 	if info, err := os.Stat(cfg.AgentsDir); err == nil && info.IsDir() {
-		args = append(args, "-v", cfg.AgentsDir+":/home/claude/.claude/agents:ro")
+		target := "/home/claude/.claude/agents"
+		if opts.Profile != "" {
+			target = hostAgentsMountPath
+			args = append(args, "-e", "AIRUN_HOST_AGENTS="+target)
+		}
+		args = append(args, "-v", cfg.AgentsDir+":"+target+":ro")
 	}
 	if opts.Browser != "" {
 		args = append(args, "-e", "AIRUN_BROWSER="+opts.Browser)
@@ -142,7 +159,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 	// Load profile if specified
 	var extraVolumes []string
 	var extraEnv []string
-	var settingsTmp string
+	var manifestTmp string
 	if opts.Profile != "" {
 		prof, err := profile.Load(opts.Profile)
 		if err != nil {
@@ -150,12 +167,15 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		}
 		fmt.Fprintf(os.Stderr, "[airun] profile=%s (%s)\n", prof.Name, prof.Description)
 
-		extraVolumes, settingsTmp, extraEnv, err = profileMounts(prof)
+		extraVolumes, manifestTmp, extraEnv, err = profileMounts(prof)
 		if err != nil {
 			return fmt.Errorf("profile mounts: %w", err)
 		}
-		if settingsTmp != "" {
-			defer os.Remove(settingsTmp)
+		if manifestTmp != "" {
+			defer os.Remove(manifestTmp)
+		}
+		if err := requireProfileImage(); err != nil {
+			return err
 		}
 
 		if opts.Provider == "" && prof.Provider != "" {
@@ -385,80 +405,4 @@ func runContainerCreate(
 	}
 
 	return runErr
-}
-
-// basePlugins are installed at image build time by seed-plugins.sh and
-// activated into installed_plugins.json by the container entrypoint. They
-// don't need a runtime install, so the runner filters them out of any
-// profile-declared plugin list before passing the remainder to the
-// container as AIRUN_PLUGINS.
-var basePlugins = map[string]bool{
-	"superpowers":   true,
-	"context7":      true,
-	"skill-creator": true,
-}
-
-// filterBasePlugins returns a profile's plugin list with build-time base
-// plugins removed. The base set is pre-installed in the image; listing them
-// in a profile is harmless but passing them to `claude plugin install` would
-// be a pointless no-op at container startup.
-//
-// A plugin entry is "name" or "name@marketplace"; the plugin's identity for
-// filtering purposes is the "name" segment.
-func filterBasePlugins(plugins []string) []string {
-	out := make([]string, 0, len(plugins))
-	for _, p := range plugins {
-		name := p
-		if at := strings.IndexByte(p, '@'); at >= 0 {
-			name = p[:at]
-		}
-		if basePlugins[name] {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// profileMounts converts a profile into container mounts and extra env vars.
-//
-// Volumes cover skill directories and (when the profile declares a non-empty
-// settings block) a one-shot settings.json mounted at /home/claude/.claude/.
-// Extra env vars currently cover only AIRUN_PLUGINS — profile-declared plugins
-// beyond the base set are joined into a single comma-separated env var that
-// the entrypoint parses and feeds to `claude plugin install` at container
-// startup.
-//
-// The caller is responsible for removing settingsPath after the container
-// exits.
-func profileMounts(p *profile.Profile) (volumes []string, settingsPath string, env []string, err error) {
-	if extras := filterBasePlugins(p.Plugins); len(extras) > 0 {
-		env = append(env, "AIRUN_PLUGINS="+strings.Join(extras, ","))
-		fmt.Fprintf(os.Stderr, "[airun] extra plugins: %s\n", strings.Join(extras, ", "))
-	}
-
-	if len(p.Settings) > 0 {
-		settingsJSON, mErr := json.Marshal(p.Settings)
-		if mErr != nil {
-			return nil, "", env, fmt.Errorf("marshal settings: %w", mErr)
-		}
-		f, cErr := os.CreateTemp(os.TempDir(), ".airun-settings-*.json")
-		if cErr != nil {
-			return nil, "", env, fmt.Errorf("create settings temp file: %w", cErr)
-		}
-		if _, wErr := f.Write(settingsJSON); wErr != nil {
-			f.Close()
-			os.Remove(f.Name())
-			return nil, "", env, fmt.Errorf("write settings: %w", wErr)
-		}
-		f.Close()
-		settingsPath = f.Name()
-		// RW mount: claude CLI writes marketplace registrations and installed
-		// plugin metadata back to settings.json during `plugin install`. The
-		// file is a throwaway tmp copy of the profile's settings (the caller
-		// defers os.Remove), so claude's writes don't leak back to the profile.
-		volumes = append(volumes, fmt.Sprintf("%s:/home/claude/.claude/settings.json", settingsPath))
-	}
-
-	return volumes, settingsPath, env, nil
 }

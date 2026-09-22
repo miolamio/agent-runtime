@@ -101,6 +101,10 @@ case "${1:-}" in
         exit 0
         ;;
     image)
+        if [[ "$*" == *"io.airun.profile-manifest-version"* ]]; then
+            printf '%s\n' "${DOCKER_SHIM_MANIFEST_VERSION:-1}"
+            exit 0
+        fi
         # `docker image inspect <tag>` — succeed if tag is agent-runtime:latest
         # so skip_if_no_image passes; fail on other tags so negative-path tests
         # still work.
@@ -151,6 +155,7 @@ case "${1:-}" in
         for arg in "$@"; do
             if [[ "$prev" == "--name" ]]; then
                 container_name="$arg"
+                mkdir -p "${DOCKER_SHIM_CAPTURE}/${container_name}"
                 # mkdir is atomic, including between concurrent shim processes.
                 if ! mkdir "${DOCKER_SHIM_LOG}.${arg}" 2>/dev/null; then
                     echo "container name already in use: $arg" >&2
@@ -169,12 +174,14 @@ case "${1:-}" in
                     dst="${rest%%:*}"
                     if [[ -f "$src" && -n "${DOCKER_SHIM_CAPTURE:-}" ]]; then
                         cp "$src" "${DOCKER_SHIM_CAPTURE}/$(basename "$dst")" 2>/dev/null || true
+                        cp "$src" "${DOCKER_SHIM_CAPTURE}/${container_name}/$(basename "$dst")" 2>/dev/null || true
                     fi
                 fi
             fi
             if [[ "$prev" == "--env-file" ]]; then
                 if [[ -f "$arg" && -n "${DOCKER_SHIM_CAPTURE:-}" ]]; then
                     cp "$arg" "${DOCKER_SHIM_CAPTURE}/env-file.env" 2>/dev/null || true
+                    cp "$arg" "${DOCKER_SHIM_CAPTURE}/${container_name}/env-file.env" 2>/dev/null || true
                 fi
             fi
             prev="$arg"
@@ -185,6 +192,7 @@ case "${1:-}" in
             echo "shim-container-id"
         else
             printf 'output:%s\n' "${container_name:-unnamed}"
+            exit "${DOCKER_SHIM_RUN_EXIT_CODE:-0}"
         fi
         exit 0
         ;;
@@ -213,4 +221,3 @@ esac
 SHIM
     chmod +x "$home/bin/docker"
 }
-

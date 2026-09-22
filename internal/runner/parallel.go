@@ -21,7 +21,7 @@ func ParseAgentSpec(spec string) (AgentSpec, error) {
 	return AgentSpec{Name: parts[0], Prompt: parts[1]}, nil
 }
 
-func RunParallel(cfg *config.Config, agents []AgentSpec, provider string) error {
+func RunParallel(cfg *config.Config, agents []AgentSpec, base RunOpts) error {
 	var wg sync.WaitGroup
 	errors := make(chan error, len(agents))
 
@@ -29,12 +29,10 @@ func RunParallel(cfg *config.Config, agents []AgentSpec, provider string) error 
 		wg.Add(1)
 		go func(a AgentSpec) {
 			defer wg.Done()
-			opts := RunOpts{
-				Prompt:   a.Prompt,
-				Provider: provider,
-				Name:     a.Name,
-				NoState:  true, // avoid concurrent volume corruption
-			}
+			opts := base
+			opts.Prompt = a.Prompt
+			opts.Name = a.Name
+			opts.NoState = true // preserve the parallel session-persistence policy
 			if err := Run(cfg, opts); err != nil {
 				errors <- fmt.Errorf("agent %s failed: %w", a.Name, err)
 			}

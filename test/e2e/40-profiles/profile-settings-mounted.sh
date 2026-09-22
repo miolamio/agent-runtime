@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# A profile with a `settings:` block must marshal it to JSON and bind-mount
-# the resulting file at /home/claude/.claude/settings.json. The mount is RW
-# (no :ro suffix) so claude CLI can write marketplace registrations and
-# plugin install state back into the same file — the caller defers os.Remove
-# on the tmp copy, so claude's mutations do not leak back to the profile.
+# Settings travel in the secret-free read-only manifest. The container owns
+# the private effective settings file; it must not write to a host file.
 source "${E2E_LIB}/harness.sh"
 source "${E2E_LIB}/env.sh"
 source "${E2E_LIB}/skip.sh"
@@ -18,18 +15,20 @@ mk_test_profile "$th" "$tag" "settings:
   autoApproveToolUse: true
   favouriteColor: blue"
 
-PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" -p "$tag" "ping" >/dev/null 2>&1 || true
+PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" --profile "$tag" "ping" >/dev/null 2>&1 || true
 
 log=$(cat "$DOCKER_SHIM_LOG")
-assert_contains "$log" "/home/claude/.claude/settings.json" \
-    "settings.json is bind-mounted"
-assert_not_contains "$log" "/home/claude/.claude/settings.json:ro" \
-    "settings.json mount is RW, not RO"
+assert_contains "$log" "/run/airun/profile.json:ro" \
+    "profile manifest is read-only"
+assert_not_contains "$log" "/home/claude/.claude/settings.json" \
+    "effective settings are not mounted from the host"
 
-snap="$DOCKER_SHIM_CAPTURE/settings.json"
-assert_file_exists "$snap" "shim captured the rendered settings.json"
+snap="$DOCKER_SHIM_CAPTURE/profile.json"
+assert_file_exists "$snap" "shim captured the normalized profile"
 content=$(cat "$snap")
 # The Go side marshals a map with yaml.v3 → any; json.Marshal preserves types
 # but map key order is non-deterministic, so grep for substrings instead.
 assert_contains "$content" '"autoApproveToolUse":true' "settings contains the bool flag"
 assert_contains "$content" '"favouriteColor":"blue"'   "settings contains the string value"
+assert_contains "$content" '"version":1' "manifest contract is versioned"
+assert_contains "$content" "\"profile_key\":\"$tag\"" "canonical selector is retained"

@@ -46,6 +46,12 @@ func main() {
 	case "shell":
 		runShell(os.Args[2:])
 		return
+	case "profile":
+		if err := runProfile(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	case "state":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: airun state <info|reset>")
@@ -93,7 +99,7 @@ func main() {
 			args = append(args, "--no-cache")
 		}
 		if rebuildFlags["--fresh"] {
-			// Bust the Claude Code install cache to get the latest version
+			// Bust the Claude Code install cache to reinstall the pinned version
 			args = append(args, "--build-arg", fmt.Sprintf("CLAUDE_BUST_CACHE=%d", time.Now().Unix()))
 			fmt.Println("[airun] --fresh: will reinstall Claude Code CLI")
 		}
@@ -293,8 +299,7 @@ func main() {
 	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
 	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
-	profileName := fs.String("p", "", "Profile name (dev, text, default)")
-	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
+	profileName := fs.String("profile", "", "Profile name (reviewer, dev, text, default)")
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
 	name := fs.String("name", "", "Agent name")
@@ -325,7 +330,18 @@ func main() {
 			}
 			specs = append(specs, spec)
 		}
-		if err := runner.RunParallel(cfg, specs, *provider); err != nil {
+		if len(specs) > 1 && *browser != "" {
+			fmt.Fprintln(os.Stderr, "error: --browser cannot be shared by parallel agents because its host ports are fixed; run one browser agent at a time")
+			os.Exit(1)
+		}
+		if *output != "" {
+			fmt.Fprintln(os.Stderr, "error: --output cannot be shared by parallel agents; export separate runs instead")
+			os.Exit(1)
+		}
+		if err := runner.RunParallel(cfg, specs, runner.RunOpts{
+			Provider: *provider, Model: *modelFlag, Profile: *profileName,
+			Loop: *loop, MaxLoops: *maxLoops, Browser: *browser,
+		}); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -362,8 +378,7 @@ func runShell(args []string) {
 	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
 	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
-	profileName := fs.String("p", "", "Profile name (dev, text, default)")
-	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
+	profileName := fs.String("profile", "", "Profile name (reviewer, dev, text, default)")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
 	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
 	browser := fs.String("browser", "", "Browser display: vnc | cdp | both")
@@ -388,6 +403,17 @@ func runShell(args []string) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runProfile(args []string) error {
+	if len(args) != 2 || args[0] != "update" {
+		return fmt.Errorf("usage: airun profile update NAME")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	return runner.UpdateProfile(cfg, args[1])
 }
 
 func runCheck() {
@@ -418,11 +444,12 @@ func printUsage() {
 
 Usage:
   airun "prompt"                              Run agent task
-  airun -p dev "prompt"                       Run with profile (skills, settings)
+  airun --profile reviewer "prompt"           Run with a specialist profile
   airun --provider mm "prompt"                Run with specific provider
   airun --model kimi-k2.5 "prompt"            Run with specific model
   airun shell                                 Interactive Claude Code session
-  airun shell -p dev                          Interactive with profile
+  airun shell --profile dev                   Interactive with profile
+  airun profile update reviewer              Explicitly update profile components
   airun shell --model kimi-k2.5               Interactive with specific model
   airun shell --mount /path/to/project        Interactive with project mounted
   airun shell --provider mm                   Interactive with MiniMax
@@ -450,13 +477,13 @@ Usage:
   airun init                                  Interactive global setup
   airun rebuild                               Rebuild docker image
   airun rebuild --no-cache                    Rebuild without cache
-  airun rebuild --fresh                       Reinstall Claude Code CLI (latest version)
+  airun rebuild --fresh                       Reinstall the image's pinned Claude Code CLI
   airun --status                              Show running agents
   airun --check                               Show config and prerequisites
   airun --version                             Show version
 
 Flags:
-  -p, --profile    Profile name (loads skills, settings, provider)
+  --profile        Profile name (components, settings, provider)
   --provider       Provider override: z/zai | m/mm/minimax | k/kimi | r/remote
   -m, --model      Model override (e.g. kimi-k2.5, glm-5.3, MiniMax-M2.7)
   --output         Export workspace to this directory after run

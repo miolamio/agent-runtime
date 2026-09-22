@@ -272,10 +272,10 @@ airun --provider k "your prompt"
 
 ```
 airun "prompt"                              Run agent task
-airun -p dev "prompt"                       Run with profile
+airun --profile dev "prompt"                Run with profile
 airun --provider kimi "prompt"              Run with specific provider
 airun shell                                 Interactive Claude Code session
-airun shell -p dev                          Interactive with profile
+airun shell --profile dev                   Interactive with profile
 airun shell --mount /path/to/project        Mount a specific directory
 airun --loop --max-loops 5 "prompt"         Autonomous loop mode
 airun --output ./results "prompt"           Export workspace after run
@@ -657,8 +657,9 @@ instance.
 
 ## Profiles
 
-Profiles bundle a provider, Claude Code plugins, and settings into a reusable
-configuration under `~/.airun/profiles/`.
+Profiles bundle a provider, settings and selected Claude Code capabilities under
+`~/.airun/profiles/`. Use `--profile`; the old short `-p` profile alias is removed.
+Interactive/headless execution is a separate choice.
 
 ```yaml
 # ~/.airun/profiles/dev.yaml
@@ -675,18 +676,96 @@ settings:
   alwaysThinkingEnabled: true
 ```
 
-Skills are delivered through marketplace plugins. The image seeds the base
-plugins (`superpowers`, `context7`, and `skill-creator`); profile plugins are
-activated when the container starts. The legacy `skills:` field is ignored with
-a warning; host skill directories are no longer mounted into containers.
+Top-level `plugins` keeps native `name@marketplace` semantics. The image provides
+base plugins (`superpowers`, `context7`, and `skill-creator`) and direct skills.
+The deprecated top-level `skills` field remains ignored with a warning; catalog
+skills belong under `components.skills`.
 
-Five profiles ship as templates: **default**, **dev**, **ceo**, **research**, and
-**text** (Russian text editing and translation).
+Six profiles ship as templates: **default**, **dev**, **ceo**, **research**,
+**text** (Russian text editing and translation), and **reviewer**. Template setup
+does not overwrite existing user profiles.
 
 ```bash
-airun -p dev "Refactor the authentication module"
-airun -p text "Translate README.md to Russian"
+airun --profile dev "Refactor the authentication module"
+airun --profile text "Translate README.md to Russian"
+airun shell --profile reviewer
+airun profile update reviewer
 ```
+
+### Catalog components
+
+The reviewer template selects the main session agent explicitly:
+
+```yaml
+name: reviewer
+provider: z
+plugins: []
+settings:
+  effortLevel: high
+  agent: code-reviewer
+components:
+  agents: [development-tools/code-reviewer]
+  skills: []
+  commands: []
+  mcps: []
+  mods: []
+  plugins: []
+```
+
+Catalog references come from `claude-code-templates`. Each accepts a string ID
+or an object with `id`; custom URLs and installer shell commands are unsupported.
+Installing an agent makes it available; `settings.agent` chooses the main role.
+An unavailable selected role prevents startup.
+
+MCP references can bind the integration's target variables to names of variables
+in the host environment. Values are never written into the profile:
+
+```yaml
+components:
+  mcps:
+    - id: integration/github-integration
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: MY_REVIEW_GITHUB_TOKEN
+```
+
+Export `MY_REVIEW_GITHUB_TOKEN` before launching. Each integration receives its
+own bindings, even when target names overlap. Missing required values, unresolved
+placeholders, unsupported runtime dependencies and conflicting server names
+prevent startup. Credentials travel through a protected temporary environment
+file and are excluded from component manifests, receipts and logs.
+
+Every profile launch builds a separate active configuration from the current
+YAML, image baseline and optional host agents. Removing a component removes its
+profile-owned contribution from subsequent launches; running sessions keep their
+configuration. Repository-owned Claude configuration remains a separate source.
+Preparation never installs into the host workspace.
+
+Resolved component bytes are retained per profile in `airun-components-cache`.
+Ordinary launches reuse them; first use or a newly added reference can download
+content. `airun profile update NAME` explicitly replaces the selected set in a
+preparation-only container. Failed updates preserve the previous set, and
+updating one profile does not refresh another. Removed references retain their
+resolution so re-adding them does not silently update their version. Missing or
+corrupt retained artifacts require the explicit update command.
+
+Session history stays in the existing `airun-state-NAME` volume, separate from
+active configuration and artifacts. `--no-state` disables session persistence,
+not artifact retention. The existing `airun state reset` command resets the
+default unprofiled state volume; it does not refresh profile components.
+History is merged periodically and at session exit. If a final save fails, the
+run exits with an error and reports a private recovery directory on the state
+volume; subsequent launches do not import that directory automatically.
+
+The same profile applies in shell, headless, snapshot, bind, export and parallel
+flows. Parallel runs retain their existing no-state session policy. Browser
+ports are fixed, so `--browser` is rejected for multiple parallel workers. Genuine
+identity conflicts fail; repeating an identical baseline plugin is harmless.
+
+The inspected catalog currently has no installable `components.plugins` entries;
+unknown catalog selections fail while top-level native plugins remain supported.
+Mods require the compatible pinned Claude image and function hooks. Build the
+updated image before using component profiles. Startup verifies local preparation
+and activation requirements; it cannot guarantee a remote MCP service is online.
 
 ## Docker image
 
@@ -727,7 +806,7 @@ agent-runtime/
 │   └── init/                     Container init manifest
 ├── scripts/
 │   ├── setup.sh                  Host setup script
-│   └── init-container.sh         Container post-init script
+│   └── init-container.sh         Legacy initialization helper
 ├── test/e2e/                     CLI and Docker regression checks
 ├── docs/                         Validation reports and proxy setup checks
 └── examples/
@@ -743,13 +822,34 @@ go build -o bin/airun ./cmd/airun/
 go vet ./...
 go test -race ./...
 golangci-lint run
-bash test/e2e/run-all.sh --no-build
+AIRUN_TEST_ENV=/dev/null bash test/e2e/run-all.sh --no-build
 ```
 
 The e2e harness requires Bash 4+. On macOS, select an installed Bash 4+ binary
 instead of `/bin/bash`. The default suite makes no model API calls; it includes
 a snapshot permissions check against Docker when the local image is available.
 See [e2e documentation](test/e2e/README.md) for filters and optional provider tests.
+
+Profile adapter and history tests require Linux, Node 24 and `flock`; run them
+as a non-root user. On macOS, use the test image:
+
+```bash
+docker build -t agent-runtime:profiles-dev docker/
+docker run --rm --network none --user claude --entrypoint node \
+  -v "$PWD/docker:/tests:ro" agent-runtime:profiles-dev \
+  --test /tests/component-adapter.test.mjs /tests/profile-start.test.mjs
+```
+
+Run `bash test/profile-activation/run.sh` to exercise the actual Claude CLI,
+MCP tools, plugins, mods, session resume and concurrent configurations against a
+local model fixture with networking disabled. See its
+[coverage and fixture boundaries](test/profile-activation/README.md).
+
+Run `bash test/profile-entrypoint/run.sh` to check the production entrypoint's
+root-to-user transition with fresh state volumes, actual reviewer activation,
+saved transcripts and no-profile image defaults. See its
+[test setup](test/profile-entrypoint/README.md).
+
 
 ## Platform support
 
@@ -776,7 +876,7 @@ Running `airun` natively on Windows (without WSL) will hit several issues:
 
 - [ ] Windows native support (PowerShell profile, ACL-based permissions, path normalization)
 - [x] Direct Anthropic API provider routing
-- [ ] Container init from profile (auto-install plugins, npm/pip packages)
+- [x] Container profiles with verified catalog components and explicit updates
 - [x] Proxy: auto-reload users on file change (without SIGHUP)
 - [ ] Proxy: per-user daily usage limits and quotas
 
