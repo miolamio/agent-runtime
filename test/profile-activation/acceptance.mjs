@@ -5,7 +5,7 @@ import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { startProfile } from '/airun/profile-start.mjs';
 import { inventory } from '/airun/component-adapter.mjs';
-import { createFixtures, root } from './fixtures.mjs';
+import { createFixtures, createDedupFixtures, sourceSnapshot, sources, root } from './fixtures.mjs';
 import { verifyPinnedInstaller } from './installer-acceptance.mjs';
 import { startRegistry } from './npm-registry.mjs';
 
@@ -48,7 +48,8 @@ async function main() {
       if (concurrentArrivals === 2) concurrentBarrier.release();
       await concurrentBarrier.promise;
     }
-    const tool = plan[turn++];
+    const step = plan[turn++];
+    const tool = typeof step === 'function' ? await step() : step;
     const content = tool ? [{ type: 'tool_use', id: `toolu_probe_${turn}`, name: tool.name, input: tool.input }] : [{ type: 'text', text: 'AIRUN_ACCEPTANCE_COMPLETE' }];
     const message = {
       id: `msg_probe_${requests.length}`, type: 'message', role: 'assistant', model: body.model,
@@ -128,6 +129,69 @@ async function main() {
 
     const pointer = await fs.readFile(path.join(root, 'cache/profiles/activation/current.json'), 'utf8');
     const catalogBefore = await fs.readFile(path.join(root, 'catalog-requests'), 'utf8');
+    const baseline = path.join(root, 'baseline');
+    const originalBaseline = await sourceSnapshot(baseline);
+    const { repository, restoreBaseline } = await createDedupFixtures();
+    const repositoryBefore = await sourceSnapshot(repository), baselineBefore = await sourceSnapshot(baseline);
+    const dedupCacheBefore = await retainedCacheSnapshot();
+    const readAlias = relative => async () => {
+      const config = (await proof('deduplicated')).config;
+      const file = path.join(config, 'skills', relative);
+      assert((await fs.realpath(file)).startsWith(path.join(config, 'airun-component-resources') + '/'), 'alias did not reach its private baseline dependency');
+      assert.deepEqual(await fs.readdir(path.join(config, 'skills/probe-resource-alias/empty')), [], 'empty directory link target was not published');
+      return { name: 'Read', input: { file_path: file } };
+    };
+    plan = [
+      { name: 'Skill', input: { skill: 'probe-skill' } },
+      { name: 'Skill', input: { skill: 'probe-command' } },
+      { name: 'Skill', input: { skill: 'probe-alias' } },
+      { name: 'Skill', input: { skill: 'probe-resource-alias' } },
+      readAlias('probe-alias/references/deep/checklist.txt'),
+      readAlias('probe-resource-alias/checklist.txt')
+    ]; turn = 0;
+    const deduplicated = await launch({ ...env, AIRUN_ACCEPTANCE_RUN: 'deduplicated' }, 'Verify the identical project skill and command.');
+    const deduplicatedRequests = requests.splice(0);
+    assert.equal(deduplicated.code, 0, `deduplicated selection failed: ${deduplicated.stderr}`);
+    for (const marker of ['AIRUN_SKILL_BODY_ACTIVE', 'AIRUN_COMMAND_BODY_ACTIVE', 'AIRUN_BASELINE_ALIAS_ACTIVE']) assert(JSON.stringify(deduplicatedRequests).includes(marker), 'deduplicated component did not expand through native Skill');
+    const nativeResults = deduplicatedRequests.flatMap(request => request.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])).filter(block => block.type === 'tool_result');
+    for (const id of [3, 4, 5, 6]) {
+      const result = nativeResults.find(block => block.tool_use_id === `toolu_probe_${id}`);
+      assert(result && !result.is_error, `native alias tool ${id} failed`);
+      if (id >= 5) assert(JSON.stringify(result.content).includes(sources['cli-tool/components/skills/testing/probe-skill/references/deep/checklist.txt'].trim()), 'native Read did not access the private resource');
+    }
+    const deduplicatedProof = await proof('deduplicated');
+    assert.equal(deduplicatedProof.privateSkill, false, 'private duplicate skill remains');
+    assert.equal(deduplicatedProof.privateCommand, false, 'private duplicate command remains');
+    assert.deepEqual(await sourceSnapshot(repository), repositoryBefore, 'preparation modified repository resources or modes');
+    assert.deepEqual(await sourceSnapshot(baseline), baselineBefore, 'preparation modified baseline resources or modes');
+    assert.deepEqual(await retainedCacheSnapshot(), dedupCacheBefore, 'deduplication changed retained generation or payload content');
+    assert.equal(await fs.readFile(path.join(root, 'cache/profiles/activation/current.json'), 'utf8'), pointer);
+    assert.equal(await fs.readFile(path.join(root, 'catalog-requests'), 'utf8'), catalogBefore);
+    console.log('PASS identical baseline/catalog/repository components and baseline aliases expand through native Skill; Read reaches private resources without discoverable duplicates or cache changes');
+
+    const resource = path.join(repository, 'skills/probe-skill/references/deep/checklist.txt');
+    await fs.writeFile(resource, 'AIRUN_DIFFERING_RESOURCE_SECRET');
+    const conflictBefore = await sourceSnapshot(repository), conflictCacheBefore = await retainedCacheSnapshot();
+    plan = []; turn = 0;
+    const conflicting = await launch({ ...env, AIRUN_ACCEPTANCE_RUN: 'conflicting' }, 'This model task must not start.');
+    assert.notEqual(conflicting.code, 0, 'different nested resource unexpectedly activated');
+    assert.equal(requests.length, 0, 'component conflict started a model request');
+    assert.match(conflicting.stderr, /invocation collision: probe-skill/);
+    assert(conflicting.stderr.includes('catalog skills:testing/probe-skill'));
+    assert(conflicting.stderr.includes(path.join(baseline, 'skills/probe-skill')));
+    assert(conflicting.stderr.includes(path.join(repository, 'skills/probe-skill')));
+    assert(!conflicting.stderr.includes('AIRUN_DIFFERING_RESOURCE_SECRET'));
+    await assert.rejects(fs.stat(path.join(root, 'run-proofs/conflicting.json')), { code: 'ENOENT' });
+    assert.deepEqual(await sourceSnapshot(repository), conflictBefore);
+    assert.deepEqual(await sourceSnapshot(baseline), baselineBefore);
+    assert.deepEqual(await retainedCacheSnapshot(), conflictCacheBefore, 'conflict changed retained generation or payload content');
+    assert.equal(await fs.readFile(path.join(root, 'cache/profiles/activation/current.json'), 'utf8'), pointer);
+    console.log('PASS same-body nested-resource conflict reports both sources before native hooks or model execution and preserves generation');
+    // Keep the existing removal/resume/concurrency phases scoped to their
+    // original repository-independent fixture.
+    await fs.rm(repository, { recursive: true });
+    await restoreBaseline();
+    assert.deepEqual(await sourceSnapshot(baseline), originalBaseline, 'dedup phase did not restore the original baseline');
     await fs.rm(path.join(root, 'mod-executed'));
     plan = []; turn = 0;
     const removed = await launch({ ...env, AIRUN_PROFILE_MANIFEST: path.join(root, 'removed.json'), AIRUN_ACCEPTANCE_RUN: 'removed' }, 'Verify the reduced profile.');
@@ -189,7 +253,7 @@ async function main() {
     assert(proofs.every(item => item.historyImported), 'concurrent sessions did not import prior history');
     assert((await fs.readFile(firstTranscript, 'utf8')).includes(initialPrompt));
     console.log('PASS concurrent actual sessions use different private configuration paths and retain both native transcripts');
-    const requestText = JSON.stringify([...selectedRequests, ...removedRequests, ...restoredRequests, ...resumedRequests, ...requests]);
+    const requestText = JSON.stringify([...selectedRequests, ...deduplicatedRequests, ...removedRequests, ...restoredRequests, ...resumedRequests, ...requests]);
     for (const value of ['synthetic-provider-only', 'synthetic-mcp-first', 'synthetic-mcp-second', 'synthetic-mcp-third']) {
       assert(!requestText.includes(value), 'credential value entered model request content');
     }
@@ -264,4 +328,14 @@ async function runtimeSnapshot() {
   const generation = JSON.parse(await fs.readFile(path.join(profiles, 'generations', pointer.generation + '.json'), 'utf8'));
   const record = generation.records['mcps:testing/npm-mcp'].runtimes.npmprobe;
   return { record, files: await inventory(record.directory, { links: true }) };
+}
+
+async function retainedCacheSnapshot() {
+  const cache = path.join(root, 'cache');
+  return {
+    pointer: await fs.readFile(path.join(cache, 'profiles/activation/current.json'), 'utf8'),
+    generations: await sourceSnapshot(path.join(cache, 'profiles/activation/generations')),
+    payloads: await sourceSnapshot(path.join(cache, 'payloads')),
+    runtimes: await sourceSnapshot(path.join(cache, 'runtimes'))
+  };
 }

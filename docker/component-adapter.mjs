@@ -541,25 +541,160 @@ async function scanAgents(root, parseYAML, identities, prefix = '', seen = new S
     identities.add(name);
   }
 }
-async function invocationNames(root) {
-  const names = [];
-  const skills = path.join(root, 'skills');
-  if (await exists(skills)) for (const entry of await fs.readdir(skills, { withFileTypes: true })) {
-    const directory = path.join(skills, entry.name);
-    // A plugin wrapper in skills/ uses plugin namespaces, not the plain
-    // directory-name invocation of an ordinary personal/project skill.
-    if (entry.isDirectory() && await exists(path.join(directory, 'SKILL.md')) && !(await exists(path.join(directory, '.claude-plugin/plugin.json')))) names.push(entry.name);
+async function plainComponents(root, origin, names, skillNames = names) {
+  const components = [];
+  const wanted = name => !names || names.has(name);
+  const add = (kind, name, file, unsafe = false) => components.push({ kind, name, file, root, origin, unsafe, relative: path.relative(root, file) });
+  // Never follow a repository root/category/directory link to discover a
+  // collision. Only matching managed names make such a link our concern.
+  async function directory(file, kinds, prefix = '') {
+    if (!(await exists(file))) return false;
+    const stat = await fs.lstat(file);
+    if (!stat.isSymbolicLink()) return stat.isDirectory();
+    // Baseline links have already passed the complete baseline inventory check.
+    if (!names) return (await fs.stat(file)).isDirectory();
+    for (const name of names) if (name.startsWith(prefix)) for (const kind of kinds) add(kind, name, file, true);
+    return false;
   }
-  async function commands(directory, prefix = '') {
-    if (!(await exists(directory))) return;
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+  if (!(await directory(root, ['skills', 'commands']))) return components;
+  const skills = path.join(root, 'skills');
+  if (await directory(skills, ['skills'])) for (const entry of await fs.readdir(skills, { withFileTypes: true })) {
+    if (!wanted(entry.name)) continue;
+    const file = path.join(skills, entry.name);
+    if (entry.isSymbolicLink() && names) add('skills', entry.name, file, true);
+    // Plugin wrappers use plugin namespaces, not plain skill invocations.
+    else if (entry.isDirectory() || (entry.isSymbolicLink() && (await fs.stat(file)).isDirectory())) {
+      const plugin = await exists(path.join(file, '.claude-plugin/plugin.json'));
+      if (skillNames?.has(entry.name) || (await exists(path.join(file, 'SKILL.md')) && !plugin)) add(plugin ? 'mods' : 'skills', entry.name, file);
+    } else if (skillNames?.has(entry.name)) add('skills', entry.name, file);
+  }
+  async function commands(dir, prefix = '', ancestors = new Set()) {
+    if (!(await directory(dir, ['commands'], prefix))) return;
+    const real = await fs.realpath(dir);
+    if (ancestors.has(real)) return;
+    const parents = new Set([...ancestors, real]);
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
       const name = prefix + entry.name;
-      if (entry.isDirectory()) await commands(path.join(directory, entry.name), `${name}:`);
-      else if (entry.isFile() && entry.name.endsWith('.md')) names.push(name.slice(0, -3));
+      const file = path.join(dir, entry.name);
+      if (entry.name.endsWith('.md') && wanted(name.slice(0, -3)) && (names || !entry.isDirectory())) add('commands', name.slice(0, -3), file, Boolean(names) && entry.isSymbolicLink());
+      if ((entry.isDirectory() || (entry.isSymbolicLink() && !entry.name.endsWith('.md'))) && (!names || [...names].some(value => value.startsWith(`${name}:`)))) await commands(file, `${name}:`, parents);
     }
   }
   await commands(path.join(root, 'commands'));
-  return names;
+  return components;
+}
+function componentSource(component) {
+  return `${component.kind} ${component.origin}: ${component.file}${component.source ? ` (source ${component.source})` : ''}`;
+}
+async function componentInventory(component) {
+  if (component.unsafe) fail('unsafe component symlink');
+  if (!component.files) {
+    if (component.kind === 'skills') component.files = await inventory(await fs.realpath(component.file), { links: true });
+    else {
+      // Read only this command, and reject special entries before readFile can
+      // block on a FIFO. Sibling names are outside this component's inventory.
+      const stat = await fs.lstat(component.file);
+      if (!stat.isFile()) fail('unsupported command entry');
+      const bytes = await fs.readFile(component.file);
+      component.files = [{ path: 'command.md', size: bytes.length, sha256: hash(bytes), executable: Boolean(stat.mode & 0o111) }];
+    }
+    // Receipts retain their existing Boolean executable field. Equivalence
+    // additionally compares the permissions that the effective copy will have:
+    // managed files are normalized by copyFiles; repository files stay in place.
+    component.files = await Promise.all(component.files.map(async file => file.symlink !== undefined ? file : {
+      ...file, executableMode: component.origin === 'repository'
+        ? (await fs.stat(component.kind === 'skills' ? path.join(component.file, file.path) : component.file)).mode & 0o111
+        : file.executable ? 0o111 : 0
+    }));
+  }
+  return component.files;
+}
+async function selectPlainComponents(managed, repositoryRoot) {
+  const selected = new Map();
+  const repository = repositoryRoot ? await plainComponents(repositoryRoot, 'repository', new Set(managed.map(component => component.name)), new Set(managed.filter(component => component.kind === 'skills').map(component => component.name))) : [];
+  const omitted = new Set();
+  for (const component of [...managed, ...repository]) {
+    const previous = selected.get(component.name);
+    if (!previous) { selected.set(component.name, { effective: component, sources: [component] }); continue; }
+    const conflict = reason => fail(`skill/command invocation collision: ${component.name}; ${[...previous.sources, component].map(componentSource).join('; ')}; ${reason}`);
+    if (previous.effective.kind !== component.kind) conflict('different component kinds');
+    let equal;
+    try { equal = stable(await componentInventory(previous.effective)) === stable(await componentInventory(component)); }
+    catch { conflict('cannot establish equivalence: unsafe or unreadable resource inventory'); }
+    if (!equal) conflict('complete resource inventories differ');
+    previous.sources.push(component);
+    if (component.origin === 'repository') { omitted.add(previous.effective); previous.effective = component; }
+    else omitted.add(component);
+  }
+  return omitted;
+}
+async function preflightSkillDirectories(managed, repositoryRoot) {
+  const groups = new Map();
+  for (const component of managed) {
+    const group = groups.get(component.name) ?? [];
+    group.push(component); groups.set(component.name, group);
+  }
+  for (const [name, group] of groups) {
+    const wrapper = group.find(component => component.wrapper);
+    if (!wrapper) continue;
+    if (repositoryRoot) {
+      // lstat each ancestor: wrapper checks must not read through workspace links.
+      for (const file of [repositoryRoot, path.join(repositoryRoot, 'skills'), path.join(repositoryRoot, 'skills', name)]) {
+        if (!(await exists(file))) break;
+        const stat = await fs.lstat(file);
+        if (stat.isSymbolicLink() || file === path.join(repositoryRoot, 'skills', name)) {
+          const plugin = stat.isDirectory() && await exists(path.join(file, '.claude-plugin/plugin.json'));
+          group.push({ kind: plugin ? 'mods' : 'skills', origin: 'repository', file });
+          break;
+        }
+        if (!stat.isDirectory()) break;
+      }
+    }
+    if (group.length > 1) fail(`${wrapper.id ? `${wrapper.kind}:${wrapper.id}: ` : ''}installed directory collision: ${name}; ${group.map(componentSource).join('; ')}`);
+  }
+}
+async function copyBaselineComponents(baseline, target, components, omitted) {
+  const all = await inventory(baseline, { links: true, ignore: name => name === 'inventory.json' || name.split('/').includes('.git') });
+  const omissions = components.filter(component => omitted.has(component)).map(component => component.relative);
+  const beneath = (file, root) => file === root || file.startsWith(`${root}/`);
+  const discovered = file => ['agents', 'skills', 'commands'].some(root => beneath(file, root));
+  const omittedPath = file => omissions.some(root => beneath(file, root));
+  const privateTarget = file => !discovered(file) || omittedPath(file) || omissions.some(root => root.startsWith(`${file}/`));
+  const destination = file => path.join(target, privateTarget(file) ? `airun-component-resources/${file}` : file);
+  const queue = all.filter(file => discovered(file.path) && !omittedPath(file.path)).map(file => ({ file, relative: file.path, private: false }));
+  const copied = new Set();
+  const directories = new Set();
+  for (let index = 0; index < queue.length; index++) {
+    const entry = queue[index], file = entry.file;
+    const dest = entry.private ? path.join(target, 'airun-component-resources', entry.relative) : path.join(target, entry.relative);
+    if (copied.has(dest)) continue;
+    copied.add(dest);
+    let symlink = file.symlink;
+    if (symlink !== undefined) {
+      const resolved = path.relative(baseline, await fs.realpath(path.join(baseline, file.path)));
+      const stat = await fs.stat(path.join(baseline, resolved));
+      // A directory alias containing an omitted invocation needs a partial
+      // materialized view; keeping the directory link would hide a duplicate.
+      if (!entry.private && stat.isDirectory() && omissions.some(root => root.startsWith(`${entry.relative}/`))) {
+        directories.add(dest);
+        for (const child of all.filter(child => child.path.startsWith(`${resolved}/`))) {
+          const relative = `${entry.relative}/${child.path.slice(resolved.length + 1)}`;
+          if (!omittedPath(relative)) queue.push({ file: child, relative, private: false });
+        }
+        continue;
+      }
+      const resolvedDest = destination(resolved);
+      symlink = path.relative(path.dirname(dest), resolvedDest) || '.';
+      if (stat.isDirectory()) directories.add(resolvedDest);
+      if (privateTarget(resolved)) {
+        // Only incoming dependencies enter this non-discovered closure. All
+        // links are rewritten to active paths; no input or receipt is changed.
+        for (const child of all.filter(child => beneath(child.path, resolved))) queue.push({ file: child, relative: child.path, private: true });
+      }
+    }
+    await copyFiles(path.dirname(path.join(baseline, file.path)), path.dirname(dest), [{ ...file, path: path.basename(dest), ...(symlink !== undefined ? { symlink } : {}) }]);
+  }
+  for (const directory of directories) await fs.mkdir(directory, { recursive: true });
 }
 async function baselineNative(baseline) {
   const meta = await readJSON(path.join(baseline, 'baseline.json'), { version: 1, native_plugins: [] });
@@ -628,12 +763,32 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
   const settings = merge(defaults, manifest.settings);
   const launch = { args: [], env: {} };
   const agentNames = new Set();
-  const repository = deps.action === 'update' ? { agents: new Set(), mcps: new Set(), root: null } : await repositoryDefinitions(deps.workspace, deps.parseYAML);
-  const mcpNames = new Set(repository.mcps);
-  for (const type of ['agents', 'skills', 'commands']) {
-    const from = path.join(baseline, type);
-    if (await exists(from)) await copyFiles(from, path.join(target, type), await inventory(from, { links: true }));
+  const repositoryRoot = deps.action === 'update' ? null : path.join(deps.workspace, '.claude');
+  const baselineComponents = await plainComponents(baseline, 'image baseline');
+  const catalogComponents = [];
+  const skillDirectories = [];
+  const baselineSkills = path.join(baseline, 'skills');
+  if (await exists(baselineSkills)) for (const name of await fs.readdir(baselineSkills)) {
+    const file = path.join(baselineSkills, name);
+    const wrapper = (await fs.stat(file)).isDirectory() && await exists(path.join(file, '.claude-plugin/plugin.json'));
+    skillDirectories.push({ kind: wrapper ? 'mods' : 'skills', name, file, origin: 'image baseline', wrapper });
   }
+  for (const kind of ['skills', 'commands', 'mods']) for (const ref of manifest.components[kind] ?? []) {
+    const root = payloadDirectory(records[`${kind}:${ref.id}`]);
+    const location = componentPaths(kind, ref.id);
+    const file = path.join(root, location.target);
+    const wrapper = kind === 'mods' || (kind === 'skills' && await exists(path.join(file, '.claude-plugin/plugin.json')));
+    const component = { kind, name: ref.id.split('/').at(-1), file, root: path.join(root, '.claude'), relative: location.target.slice('.claude/'.length), origin: `catalog ${kind}:${ref.id}`, source: location.source, id: ref.id, wrapper };
+    if (kind !== 'commands') skillDirectories.push(component);
+    if (!wrapper) catalogComponents.push(component);
+  }
+  // Wrappers never participate in plain equivalence, including when an equal
+  // repository copy would otherwise omit a conflicting managed skill path.
+  await preflightSkillDirectories(skillDirectories, repositoryRoot);
+  const omitted = await selectPlainComponents([...baselineComponents, ...catalogComponents], repositoryRoot);
+  const repository = repositoryRoot ? await repositoryDefinitions(deps.workspace, deps.parseYAML) : { agents: new Set(), mcps: new Set() };
+  const mcpNames = new Set(repository.mcps);
+  await copyBaselineComponents(baseline, target, baselineComponents, omitted);
   const hosts = deps.env.AIRUN_HOST_AGENTS;
   if (hosts && await exists(hosts)) await copyFiles(hosts, path.join(target, 'agents'));
   const seed = path.join(target, 'airun-plugin-seed');
@@ -671,11 +826,9 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
         mcpNames.add(name); mcps[name] = server;
       }
     } else {
+      const component = catalogComponents.find(component => component.kind === type && component.id === ref.id);
+      if (component && omitted.has(component)) continue;
       if (['skills', 'mods'].includes(type) && await exists(path.join(target, 'skills', ref.id.split('/').at(-1)))) fail(`${type}:${ref.id}: installed directory collision`);
-      if (repository.root && ['skills', 'commands'].includes(type)) {
-        const output = componentPaths(type, ref.id).target.slice('.claude/'.length);
-        if (await exists(path.join(repository.root, output))) fail(`${type}:${ref.id}: repository component identity collision`);
-      }
       if (type === 'mods') {
         const version = await deps.claudeVersion();
         if (!versionAtLeast(version, '2.1.259')) fail(`mods:${ref.id}: Claude Code >=2.1.259 is required`);
@@ -694,13 +847,6 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
     const root = payloadDirectory(records[`native:${ref}`]);
     const native = await readJSON(path.join(root, 'native.json'));
     for (const plugin of native.plugins) await addPluginToSeed(plugin, path.join(root, safeRelative(plugin.directory)), seed, finalConfig, plugins);
-  }
-  const invocations = new Set();
-  const repositoryInvocations = new Set(repository.root ? await invocationNames(repository.root) : []);
-  for (const name of await invocationNames(target)) {
-    if (invocations.has(name)) fail(`installed skill/command invocation collision: ${name}`);
-    if (repositoryInvocations.has(name)) fail(`repository skill/command invocation collision: ${name}`);
-    invocations.add(name);
   }
   await scanAgents(path.join(target, 'agents'), deps.parseYAML, agentNames);
   for (const name of repository.agents) {
@@ -791,8 +937,7 @@ export async function prepare(options, injected = {}) {
             await verifyRuntimes(record.runtimes, options.cache);
             continue;
           }
-          const directory = path.join(staging, `artifact-${pending.size}`);
-          await fs.mkdir(directory);
+          const directory = await fs.mkdtemp(path.join(staging, 'artifact-'));
           let source;
           if (type === 'native') {
             await deps.installNative(id, directory);
@@ -824,7 +969,17 @@ export async function prepare(options, injected = {}) {
       await fs.mkdir(options.config, { recursive: true });
       // The active view and cache may be on different Docker filesystems.
       // Copy first; a failure cannot publish a new resolution generation.
-      await copyFiles(active, options.config, await inventory(active, { links: true }));
+      const activeFiles = await inventory(active, { links: true });
+      await copyFiles(active, options.config, activeFiles);
+      // File receipts intentionally omit directories. Preserve directory link
+      // targets explicitly, including empty private resource dependencies.
+      for (const file of activeFiles.filter(file => file.symlink !== undefined)) {
+        const resolved = await fs.realpath(path.join(active, file.path));
+        if ((await fs.stat(resolved)).isDirectory()) await fs.mkdir(path.join(options.config, path.relative(active, resolved)), { recursive: true });
+      }
+      // Recheck link reachability in the published view before changing any
+      // generation; staging containment alone cannot detect lost empty targets.
+      await inventory(options.config, { links: true });
       for (const [digest, directory] of pending) {
         const destination = path.join(options.cache, 'payloads', digest);
         if (await exists(destination)) {

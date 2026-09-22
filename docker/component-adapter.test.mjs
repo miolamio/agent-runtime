@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { prepare, inventory, renderMCP, checkRuntime, verifyCatalogOutput, expectedInventory, installerPackageVersion, verifyNativeSource, withProfileLock, validateManifest } from './component-adapter.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -14,9 +14,24 @@ const keys = ['agents', 'skills', 'commands', 'mcps', 'mods', 'plugins'];
 const manifest = (components = {}, profile = 'reviewer') => ({ version: 1, profile_key: profile, settings: {}, native_plugins: [], components: Object.fromEntries(keys.map(k => [k, (components[k] ?? []).map(v => typeof v === 'string' ? { id: v } : v)])) });
 async function put(root, relative, bytes) { const file = path.join(root, relative); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, bytes); }
 async function json(root, relative, value) { await put(root, relative, JSON.stringify(value)); }
+async function sourceSnapshot(root) {
+  const entries = [];
+  async function visit(relative = '') {
+    const file = path.join(root, relative), stat = await fs.lstat(file);
+    const entry = { path: relative || '.', mode: stat.mode & 0o7777 };
+    if (stat.isSymbolicLink()) entries.push({ ...entry, type: 'link', target: await fs.readlink(file) });
+    else if (stat.isDirectory()) {
+      entries.push({ ...entry, type: 'directory' });
+      for (const name of (await fs.readdir(file)).sort()) await visit(path.join(relative, name));
+    } else if (stat.isFile()) entries.push({ ...entry, type: 'file', size: stat.size, sha256: sha(await fs.readFile(file)) });
+    else entries.push({ ...entry, type: 'special' });
+  }
+  await visit();
+  return entries;
+}
 async function baselineReceipt(root) {
-  const files = (await inventory(root)).filter(f => f.path !== 'inventory.json');
-  await json(root, 'inventory.json', { version: 1, files: await Promise.all(files.map(async f => ({ path: f.path, size: f.size, sha256: f.sha256, mode: (await fs.stat(path.join(root, f.path))).mode & 0o777 }))) });
+  const files = (await inventory(root, { links: true })).filter(f => f.path !== 'inventory.json');
+  await json(root, 'inventory.json', { version: 1, files: await Promise.all(files.map(async f => f.symlink !== undefined ? { path: f.path, symlink: f.symlink } : { path: f.path, size: f.size, sha256: f.sha256, mode: (await fs.stat(path.join(root, f.path))).mode & 0o777 })) });
 }
 function yaml(text) {
   return Object.fromEntries(text.split('\n').filter(line => line.includes(':')).map(line => { const n = line.indexOf(':'); return [line.slice(0, n), line.slice(n + 1).trim().replace(/^['"]|['"]$/g, '')]; }));
@@ -25,7 +40,7 @@ const agent = name => `---\nname: ${name}\ndescription: Reviews code\n---\nRevie
 const skill = '---\nname: helper\ndescription: A useful fixture\n---\nUse references/data.txt.\n';
 
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'airun-components-test-'));
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'airun-components-test-')));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const baseline = path.join(root, 'baseline');
   await json(baseline, 'settings.json', { effortLevel: 'medium', permissions: { defaultMode: 'bypassPermissions' } });
@@ -371,9 +386,9 @@ test('repository agent shadowing and MCP name collisions fail without modifying 
   await put(work, '.claude/agents/reviewer.md', agent('code-reviewer'));
   await put(work, '.claude/agents/unrelated-invalid.md', 'unrelated native configuration');
   const m = manifest({ agents: ['development-tools/code-reviewer'] }); m.settings.agent = 'code-reviewer';
-  const before = await inventory(work);
+  const before = await sourceSnapshot(work);
   await assert.rejects(prepare(f.options(m), f.deps), /repository agent identity collision: code-reviewer/);
-  assert.deepEqual(await inventory(work), before);
+  assert.deepEqual(await sourceSnapshot(work), before);
   await json(work, '.mcp.json', { mcpServers: { one: { command: 'unrelated-local-server' } } });
   const mcp = manifest({ mcps: [{ id: 'integration/one', env: { TOKEN: 'AIRUN_COMPONENT_ENV_0001' } }] });
   await assert.rejects(prepare(f.options(mcp), f.deps), /duplicate MCP server one/);
@@ -388,21 +403,489 @@ test('requested skills and commands cannot be silently shadowed by the repositor
   const f = await fixture(t);
   await put(f.deps.workspace, '.claude/skills/helper/SKILL.md', skill);
   await put(f.deps.workspace, '.claude/commands/check.md', 'Repository command');
-  await assert.rejects(prepare(f.options(manifest({ skills: ['development/helper'] })), f.deps), /repository component identity collision/);
-  await assert.rejects(prepare(f.options(manifest({ commands: ['tools/check'] })), f.deps), /repository component identity collision/);
+  await assert.rejects(prepare(f.options(manifest({ skills: ['development/helper'] })), f.deps), /invocation collision.*catalog skills:development\/helper.*repository.*inventories differ/);
+  await assert.rejects(prepare(f.options(manifest({ commands: ['tools/check'] })), f.deps), /invocation collision.*catalog commands:tools\/check.*repository.*inventories differ/);
+});
+
+async function copyCatalogSkill(f, target, id = 'development/helper') {
+  const prefix = `cli-tool/components/skills/${id}/`;
+  for (const [file, bytes] of Object.entries(f.source)) if (file.startsWith(prefix)) await put(target, `skills/${id.split('/').at(-1)}/${file.slice(prefix.length)}`, bytes);
+}
+
+test('complete equal baseline/catalog components deduplicate and retain every selected catalog identity', async t => {
+  const f = await fixture(t);
+  for (const [file, bytes] of Object.entries(f.source)) if (file.startsWith('cli-tool/components/skills/development/helper/')) f.source[file.replace('/development/', '/other/')] = bytes;
+  f.source['cli-tool/components/commands/other/check.md'] = f.source['cli-tool/components/commands/tools/check.md'];
+  await copyCatalogSkill(f, f.baseline);
+  await put(f.baseline, 'commands/check.md', f.source['cli-tool/components/commands/tools/check.md']);
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline);
+  const m = manifest({ skills: ['development/helper', 'other/helper'], commands: ['tools/check', 'other/check'] });
+  const o = f.options(m);
+  const first = await prepare(o, f.deps);
+  assert.deepEqual((await inventory(o.config)).filter(file => /^(skills|commands)\//.test(file.path)).map(file => file.path), ['commands/check.md', 'skills/helper/references/data.txt', 'skills/helper/SKILL.md'].sort((a, b) => a.localeCompare(b)));
+  assert.equal(Object.keys(first.records).length, 4);
+  const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+  const generation = await fs.readFile(pointer, 'utf8');
+  const warm = await prepare(f.options(m), { ...f.deps, catalog: () => assert.fail('warm fetch'), installCatalog: () => assert.fail('warm install') });
+  assert.deepEqual(warm.records, first.records);
+  const removed = f.options(manifest());
+  await prepare(removed, f.deps);
+  assert.equal(await fs.readFile(path.join(removed.config, 'skills/helper/references/data.txt'), 'utf8'), 'reference v1\n');
+  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+});
+
+test('repository owns equal skills and commands while retained copies survive removal and repository deletion', async t => {
+  const f = await fixture(t);
+  await copyCatalogSkill(f, f.baseline);
+  const repository = path.join(f.deps.workspace, '.claude');
+  await copyCatalogSkill(f, repository);
+  await put(repository, 'commands/check.md', f.source['cli-tool/components/commands/tools/check.md']);
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.deps.workspace);
+  const m = manifest({ skills: ['development/helper'], commands: ['tools/check'] });
+  const o = f.options(m);
+  const first = await prepare(o, f.deps);
+  for (const file of ['skills/helper', 'commands/check.md']) await assert.rejects(fs.lstat(path.join(o.config, file)), { code: 'ENOENT' });
+  const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+  const generation = await fs.readFile(pointer, 'utf8');
+  const removed = f.options(manifest());
+  assert.deepEqual((await prepare(removed, f.deps)).records, first.records);
+  await assert.rejects(fs.lstat(path.join(removed.config, 'skills/helper')), { code: 'ENOENT' });
+  const warm = f.options(m);
+  assert.deepEqual((await prepare(warm, { ...f.deps, catalog: () => assert.fail('warm fetch') })).records, first.records);
+  assert.deepEqual(await sourceSnapshot(f.deps.workspace), before);
+  // Test-owned deletion leaves the remaining independent managed sources active.
+  await fs.rm(repository, { recursive: true });
+  const restored = f.options(m);
+  assert.deepEqual((await prepare(restored, f.deps)).records, first.records);
+  assert.equal(await fs.readFile(path.join(restored.config, 'skills/helper/SKILL.md'), 'utf8'), skill);
+  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert.equal(f.calls.install, 2);
+});
+
+test('nested command invocation identities and executable flags participate in equivalence', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  await put(f.baseline, 'commands/tools/nested/check.md', 'Nested command\n');
+  await put(repository, 'commands/tools/nested/check.md', 'Nested command\n');
+  await baselineReceipt(f.baseline);
+  const o = f.options(manifest());
+  await prepare(o, f.deps);
+  await assert.rejects(fs.lstat(path.join(o.config, 'commands/tools/nested/check.md')), { code: 'ENOENT' });
+  await fs.chmod(path.join(repository, 'commands/tools/nested/check.md'), 0o755);
+  await assert.rejects(prepare(f.options(manifest()), f.deps), error => {
+    assert.match(error.message, /invocation collision: tools:nested:check/);
+    assert(error.message.includes(path.join(f.baseline, 'commands/tools/nested/check.md')));
+    assert(error.message.includes(path.join(repository, 'commands/tools/nested/check.md')));
+    return true;
+  });
+});
+
+test('repository equality cannot bypass retained corruption or mod collisions', async t => {
+  const f = await fixture(t);
+  await copyCatalogSkill(f, path.join(f.deps.workspace, '.claude'));
+  const m = manifest({ skills: ['development/helper'] });
+  const first = await prepare(f.options(m), f.deps);
+  await assert.rejects(prepare(f.options(manifest({ skills: ['development/helper'], mods: ['testing/helper'] })), f.deps), /mods:testing\/helper: installed directory collision/);
+  const record = first.records['skills:development/helper'];
+  await put(path.join(f.root, 'cache/payloads', record.digest), '.claude/skills/helper/references/data.txt', 'corrupt');
+  await assert.rejects(prepare(f.options(m), { ...f.deps, catalog: () => assert.fail('corruption must not fetch') }), /retained artifact is corrupt.*profile update reviewer to repair/);
+});
+
+test('same-body skill resource differences fail with both sources and leave generation and workspace unchanged', async t => {
+  for (const difference of ['changed', 'missing', 'extra', 'executable', 'missing-skill']) await t.test(difference, async t => {
+    const f = await fixture(t);
+    const m = manifest({ skills: ['development/helper'] });
+    await prepare(f.options(m), f.deps);
+    const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+    const generation = await fs.readFile(pointer, 'utf8');
+    const repository = path.join(f.deps.workspace, '.claude');
+    await copyCatalogSkill(f, repository);
+    const resource = path.join(repository, 'skills/helper/references/data.txt');
+    if (difference === 'changed') await fs.writeFile(resource, 'synthetic-secret-resource-change');
+    if (difference === 'missing') await fs.rm(resource);
+    if (difference === 'extra') await put(repository, 'skills/helper/nested/extra.bin', Buffer.from([0, 255]));
+    if (difference === 'executable') await fs.chmod(resource, 0o755);
+    if (difference === 'missing-skill') await fs.rm(path.join(repository, 'skills/helper/SKILL.md'));
+    const before = await sourceSnapshot(f.deps.workspace);
+    const o = f.options(m);
+    await assert.rejects(prepare(o, f.deps), error => {
+      assert.match(error.message, /invocation collision: helper/);
+      assert(error.message.includes('catalog skills:development/helper'));
+      assert(error.message.includes('cli-tool/components/skills/development/helper'));
+      assert(error.message.includes(path.join(repository, 'skills/helper')));
+      assert(!error.message.includes('synthetic-secret-resource-change'));
+      return true;
+    });
+    await assert.rejects(fs.lstat(o.config), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+    assert.deepEqual(await sourceSnapshot(f.deps.workspace), before);
+  });
+});
+
+test('different catalog or baseline versions still conflict before publication with both provenances', async t => {
+  for (const source of ['catalog', 'baseline']) await t.test(source, async t => {
+    const f = await fixture(t);
+    const m = manifest({ skills: ['development/helper'] });
+    if (source === 'catalog') {
+      for (const [file, bytes] of Object.entries(f.source)) if (file.startsWith('cli-tool/components/skills/development/helper/')) f.source[file.replace('/development/', '/other/')] = bytes;
+      f.source['cli-tool/components/skills/other/helper/references/data.txt'] = Buffer.from('different');
+      m.components.skills.push({ id: 'other/helper' });
+    } else {
+      await copyCatalogSkill(f, f.baseline);
+      await put(f.baseline, 'skills/helper/references/data.txt', 'different');
+      await baselineReceipt(f.baseline);
+    }
+    await assert.rejects(prepare(f.options(m), f.deps), error => {
+      assert(error.message.includes('catalog skills:development/helper'));
+      assert(error.message.includes(source === 'catalog' ? 'catalog skills:other/helper' : path.join(f.baseline, 'skills/helper')));
+      return /invocation collision/.test(error.message);
+    });
+    await assert.rejects(fs.lstat(path.join(f.root, 'cache/profiles/reviewer/current.json')), { code: 'ENOENT' });
+  });
+});
+
+test('equal supported internal skill links deduplicate, but changed link targets conflict', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  for (const root of [f.baseline, repository]) {
+    await put(root, 'skills/helper/SKILL.md', skill);
+    await put(root, 'skills/helper/references/data.txt', 'data');
+    await fs.symlink('references/data.txt', path.join(root, 'skills/helper/data-link'));
+    await fs.symlink('references', path.join(root, 'skills/helper/directory-link'));
+  }
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.deps.workspace);
+  const o = f.options(manifest());
+  await prepare(o, f.deps);
+  await assert.rejects(fs.lstat(path.join(o.config, 'skills/helper')), { code: 'ENOENT' });
+  assert.deepEqual(await sourceSnapshot(f.deps.workspace), before);
+  await fs.unlink(path.join(repository, 'skills/helper/data-link'));
+  await fs.symlink('./references/data.txt', path.join(repository, 'skills/helper/data-link'));
+  await assert.rejects(prepare(f.options(manifest()), f.deps), /inventories differ/);
+});
+
+test('unsafe colliding symlink roots, resources and command directories cannot hide overlaps or read external bytes', async t => {
+  for (const kind of ['skill-root', 'skill-file', 'skill-directory', 'command-file', 'command-directory', 'claude-root', 'skills-root']) for (const dangling of [false, true]) await t.test(`${kind}/${dangling ? 'dangling' : 'escape'}`, async t => {
+    const f = await fixture(t);
+    const repository = path.join(f.deps.workspace, '.claude');
+    const outside = path.join(f.root, 'external');
+    await put(outside, 'SKILL.md', skill);
+    await put(outside, 'secret', 'synthetic-external-secret');
+    // Permission-denied external content exposes accidental dereferencing;
+    // symlink metadata remains available for containment validation.
+    await fs.chmod(path.join(outside, 'secret'), 0o000);
+    const target = dangling ? path.join(f.root, 'absent') : outside;
+    const m = manifest({ skills: ['development/helper'] });
+    let link;
+    if (kind === 'skill-root') link = path.join(repository, 'skills/helper');
+    if (kind === 'skill-file' || kind === 'skill-directory') {
+      await copyCatalogSkill(f, repository);
+      link = path.join(repository, 'skills/helper', kind === 'skill-file' ? 'SKILL.md' : 'references');
+      await fs.rm(link, { recursive: true });
+    }
+    if (kind === 'command-file') { m.components.skills = []; m.components.commands = [{ id: 'tools/check' }]; link = path.join(repository, 'commands/check.md'); }
+    if (kind === 'command-directory') {
+      m.components.skills = [];
+      await put(f.baseline, 'commands/tools/check.md', 'command');
+      await baselineReceipt(f.baseline);
+      link = path.join(repository, 'commands/tools');
+    }
+    if (kind === 'claude-root') link = repository;
+    if (kind === 'skills-root') link = path.join(repository, 'skills');
+    await fs.mkdir(path.dirname(link), { recursive: true });
+    await fs.symlink(kind === 'skill-file' || kind === 'command-file' ? path.join(target, 'secret') : target, link);
+    const o = f.options(m);
+    await assert.rejects(prepare(o, f.deps), error => {
+      assert.match(error.message, /invocation collision/);
+      assert(error.message.includes(repository));
+      assert(!error.message.includes('synthetic-external-secret'));
+      return true;
+    });
+    await assert.rejects(fs.lstat(o.config), { code: 'ENOENT' });
+  });
+});
+
+test('unrelated repository resources stay outside equivalence checks and update defers workspace overlap', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  await put(repository, 'skills/unrelated/SKILL.md', skill);
+  await fs.symlink('/unavailable/external', path.join(repository, 'skills/unrelated/resource'));
+  await fs.mkdir(path.join(repository, 'commands'), { recursive: true });
+  await fs.symlink('/unavailable/commands', path.join(repository, 'commands/unrelated'));
+  await json(repository, 'skills/check/.claude-plugin/plugin.json', { name: 'check-plugin' });
+  // A plugin wrapper does not claim a plain command's invocation namespace.
+  await prepare(f.options(manifest({ commands: ['tools/check'] })), f.deps);
+  const m = manifest({ skills: ['development/helper'] });
+  await prepare(f.options(m), f.deps);
+  await copyCatalogSkill(f, repository);
+  await put(repository, 'skills/helper/references/data.txt', 'different');
+  await prepare(f.options(m, 'update'), f.deps);
+  await assert.rejects(prepare(f.options(m), f.deps), /invocation collision/);
+});
+
+test('wrapper directories conflict before equal plain copies can be omitted', async t => {
+  for (const scenario of ['baseline-wrapper', 'catalog-wrapper', 'catalog-wrapper-and-plain', 'mod-repository', 'baseline-wrapper-repository']) await t.test(scenario, async t => {
+    const f = await fixture(t);
+    const repository = path.join(f.deps.workspace, '.claude');
+    const m = manifest();
+    await prepare(f.options(m), f.deps);
+    const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+    // Establish a published generation before attempting the invalid selection.
+    await prepare(f.options(manifest({ commands: ['tools/check'] })), f.deps);
+    const beforePointer = await fs.readFile(pointer, 'utf8');
+    await copyCatalogSkill(f, repository);
+    if (scenario.startsWith('baseline-wrapper')) {
+      await json(f.baseline, 'skills/helper/.claude-plugin/plugin.json', { name: 'baseline-helper' });
+      if (scenario === 'baseline-wrapper') m.components.skills.push({ id: 'development/helper' });
+    } else if (scenario.startsWith('catalog-wrapper')) {
+      f.source['cli-tool/components/skills/wrappers/helper/SKILL.md'] = Buffer.from(skill);
+      f.source['cli-tool/components/skills/wrappers/helper/.claude-plugin/plugin.json'] = Buffer.from(JSON.stringify({ name: 'catalog-helper' }));
+      m.components.skills.push({ id: 'wrappers/helper' });
+      if (scenario === 'catalog-wrapper-and-plain') m.components.skills.unshift({ id: 'development/helper' });
+    } else m.components.mods.push({ id: 'testing/helper' });
+    await baselineReceipt(f.baseline);
+    const before = await sourceSnapshot(f.deps.workspace);
+    const o = f.options(m);
+    await assert.rejects(prepare(o, f.deps), error => {
+      assert.match(error.message, /installed directory collision/);
+      assert(error.message.includes(path.join(repository, 'skills/helper')));
+      assert(error.message.includes(scenario.startsWith('baseline-wrapper') ? path.join(f.baseline, 'skills/helper') : scenario === 'mod-repository' ? 'mods:testing/helper' : 'skills:wrappers/helper'));
+      return true;
+    });
+    await assert.rejects(fs.lstat(o.config), { code: 'ENOENT' });
+    assert.equal(await fs.readFile(pointer, 'utf8'), beforePointer);
+    assert.deepEqual(await sourceSnapshot(f.deps.workspace), before);
+  });
+  const f = await fixture(t);
+  await json(f.baseline, 'skills/check/.claude-plugin/plugin.json', { name: 'baseline-check' });
+  await baselineReceipt(f.baseline);
+  // A wrapper's physical directory name is not a plain command invocation.
+  await prepare(f.options(manifest({ commands: ['tools/check'] })), f.deps);
+});
+
+test('repository executable permissions match the effective managed copy without changing receipts', async t => {
+  for (const kind of ['skill', 'nested-command']) await t.test(kind, async t => {
+    const f = await fixture(t);
+    const repository = path.join(f.deps.workspace, '.claude');
+    const relative = kind === 'skill' ? 'skills/helper/scripts/run' : 'commands/tools/check.md';
+    for (const root of [f.baseline, repository]) {
+      if (kind === 'skill') await put(root, 'skills/helper/SKILL.md', skill);
+      await put(root, relative, '#!/bin/sh\nexit 0\n');
+      await fs.chmod(path.join(root, relative), 0o755);
+    }
+    await baselineReceipt(f.baseline);
+    const m = manifest({ agents: ['development-tools/code-reviewer'] });
+    const first = await prepare(f.options(m), f.deps);
+    const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+    const generation = await fs.readFile(pointer, 'utf8');
+    assert(!JSON.stringify(first.records).includes('executableMode'));
+    for (const mode of [0o645, 0o744, 0o754]) {
+      await fs.chmod(path.join(repository, relative), mode);
+      const o = f.options(m);
+      await assert.rejects(prepare(o, f.deps), /invocation collision.*inventories differ/);
+      await assert.rejects(fs.lstat(o.config), { code: 'ENOENT' });
+      assert.equal((await fs.stat(path.join(repository, relative))).mode & 0o777, mode);
+      assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+    }
+    await fs.chmod(path.join(repository, relative), 0o755);
+    assert.deepEqual((await prepare(f.options(m), f.deps)).records, first.records);
+  });
+});
+
+test('baseline skill aliases and nested incoming links retain omitted targets privately', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  await copyCatalogSkill(f, f.baseline);
+  await copyCatalogSkill(f, repository);
+  await fs.symlink('helper', path.join(f.baseline, 'skills/alias'));
+  await put(f.baseline, 'skills/consumer/SKILL.md', skill);
+  await fs.symlink('../helper/references/data.txt', path.join(f.baseline, 'skills/consumer/data'));
+  await fs.symlink('../helper/references', path.join(f.baseline, 'skills/consumer/references'));
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline);
+  const repositoryBefore = await sourceSnapshot(repository);
+  const m = manifest({ skills: ['development/helper'] });
+  const o = f.options(m);
+  const first = await prepare(o, f.deps);
+  for (const relative of ['skills/alias/SKILL.md', 'skills/consumer/data', 'skills/consumer/references/data.txt']) {
+    assert.equal(await fs.readFile(path.join(o.config, relative), 'utf8'), relative.endsWith('SKILL.md') ? skill : 'reference v1\n');
+    assert((await fs.realpath(path.join(o.config, relative))).startsWith(path.join(o.config, 'airun-component-resources')));
+  }
+  await assert.rejects(fs.lstat(path.join(o.config, 'skills/helper')), { code: 'ENOENT' });
+  const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+  const generation = await fs.readFile(pointer, 'utf8');
+  for (const selection of [m, manifest()]) {
+    const next = f.options(selection);
+    assert.deepEqual((await prepare(next, { ...f.deps, catalog: () => assert.fail('warm fetch') })).records, first.records);
+    assert.equal(await fs.readFile(path.join(next.config, 'skills/alias/SKILL.md'), 'utf8'), skill);
+    await assert.rejects(fs.lstat(path.join(next.config, 'skills/helper')), { code: 'ENOENT' });
+  }
+  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+  assert.deepEqual(await sourceSnapshot(repository), repositoryBefore);
+});
+
+test('baseline command file and directory links survive with and without deduplicated targets', async t => {
+  const f = await fixture(t);
+  await put(f.baseline, 'commands/check.md', 'Check command\n');
+  await put(f.baseline, 'commands/nested/one.md', 'First command\n');
+  await put(f.baseline, 'commands/nested/two.md', 'Second command\n');
+  await fs.symlink('check.md', path.join(f.baseline, 'commands/alias.md'));
+  await fs.symlink('nested', path.join(f.baseline, 'commands/group'));
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline);
+  const plain = f.options(manifest());
+  await prepare(plain, f.deps);
+  assert.equal(await fs.readFile(path.join(plain.config, 'commands/alias.md'), 'utf8'), 'Check command\n');
+  assert.equal(await fs.readFile(path.join(plain.config, 'commands/group/one.md'), 'utf8'), 'First command\n');
+  assert((await fs.lstat(path.join(plain.config, 'commands/group'))).isSymbolicLink());
+  const repository = path.join(f.deps.workspace, '.claude');
+  await put(repository, 'commands/check.md', 'Check command\n');
+  await put(repository, 'commands/nested/one.md', 'First command\n');
+  const aliased = f.options(manifest());
+  await prepare(aliased, f.deps);
+  await assert.rejects(fs.lstat(path.join(aliased.config, 'commands/nested/one.md')), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(aliased.config, 'commands/group/one.md'), 'utf8'), 'First command\n');
+  assert((await fs.realpath(path.join(aliased.config, 'commands/group/one.md'))).startsWith(path.join(aliased.config, 'airun-component-resources')));
+  await put(repository, 'commands/group/one.md', 'First command\n');
+  const duplicate = f.options(manifest());
+  await prepare(duplicate, f.deps);
+  for (const name of ['check.md', 'nested/one.md', 'group/one.md']) await assert.rejects(fs.lstat(path.join(duplicate.config, 'commands', name)), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(duplicate.config, 'commands/alias.md'), 'utf8'), 'Check command\n');
+  assert((await fs.realpath(path.join(duplicate.config, 'commands/alias.md'))).startsWith(path.join(duplicate.config, 'airun-component-resources')));
+  assert.equal(await fs.readFile(path.join(duplicate.config, 'commands/group/two.md'), 'utf8'), 'Second command\n');
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+});
+
+test('private baseline link dependencies preserve their own contained links', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  for (const root of [f.baseline, repository]) {
+    await put(root, 'skills/helper/SKILL.md', skill);
+    await put(root, 'skills/helper/references/data.txt', 'linked resource\n');
+    await fs.symlink('references/data.txt', path.join(root, 'skills/helper/data'));
+    await fs.symlink('references', path.join(root, 'skills/helper/directory'));
+  }
+  await fs.symlink('helper', path.join(f.baseline, 'skills/alias'));
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline);
+  const o = f.options(manifest());
+  await prepare(o, f.deps);
+  await assert.rejects(fs.lstat(path.join(o.config, 'skills/helper')), { code: 'ENOENT' });
+  for (const relative of ['skills/alias/data', 'skills/alias/directory/data.txt']) {
+    assert.equal(await fs.readFile(path.join(o.config, relative), 'utf8'), 'linked resource\n');
+    assert((await fs.realpath(path.join(o.config, relative))).startsWith(path.join(o.config, 'airun-component-resources')));
+  }
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+});
+
+test('empty private directory link targets survive final publication without changing sources or receipts', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  for (const root of [f.baseline, repository]) {
+    await put(root, 'skills/helper/SKILL.md', skill);
+    await fs.mkdir(path.join(root, 'skills/helper/empty'), { mode: 0o751 });
+  }
+  await put(f.baseline, 'skills/consumer/SKILL.md', skill);
+  await fs.symlink('../helper/empty', path.join(f.baseline, 'skills/consumer/empty'));
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline), repositoryBefore = await sourceSnapshot(repository);
+  const m = manifest({ commands: ['tools/check'] });
+  const o = f.options(m);
+  const first = await prepare(o, f.deps);
+  const link = path.join(o.config, 'skills/consumer/empty');
+  assert((await fs.lstat(link)).isSymbolicLink());
+  assert((await fs.realpath(link)).startsWith(path.join(o.config, 'airun-component-resources')));
+  assert.deepEqual(await fs.readdir(link), []);
+  await assert.rejects(fs.lstat(path.join(o.config, 'skills/helper')), { code: 'ENOENT' });
+  await inventory(o.config, { links: true });
+  const warm = f.options(m);
+  assert.deepEqual((await prepare(warm, f.deps)).records, first.records);
+  assert.deepEqual(await fs.readdir(path.join(warm.config, 'skills/consumer/empty')), []);
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+  assert.deepEqual(await sourceSnapshot(repository), repositoryBefore);
+});
+
+test('baseline links to their own parent retain a valid relative target', async t => {
+  const f = await fixture(t);
+  await put(f.baseline, 'skills/self/SKILL.md', skill);
+  await fs.symlink('.', path.join(f.baseline, 'skills/self/link'));
+  await baselineReceipt(f.baseline);
+  const before = await sourceSnapshot(f.baseline);
+  const o = f.options(manifest());
+  await prepare(o, f.deps);
+  assert.equal(await fs.readlink(path.join(o.config, 'skills/self/link')), '.');
+  assert.equal(await fs.readFile(path.join(o.config, 'skills/self/link/SKILL.md'), 'utf8'), skill);
+  assert.deepEqual(await sourceSnapshot(f.baseline), before);
+});
+
+test('later conflicts retain provenance from all previously equivalent selected sources', async t => {
+  for (const conflict of ['repository', 'catalog']) await t.test(conflict, async t => {
+    const f = await fixture(t);
+    await copyCatalogSkill(f, f.baseline);
+    await baselineReceipt(f.baseline);
+    const m = manifest({ skills: ['development/helper'] });
+    let conflictingPath;
+    if (conflict === 'repository') {
+      conflictingPath = path.join(f.deps.workspace, '.claude/skills/helper');
+      await put(conflictingPath, 'SKILL.md', skill);
+    } else {
+      f.source['cli-tool/components/skills/other/helper/SKILL.md'] = Buffer.from(skill);
+      m.components.skills.push({ id: 'other/helper' });
+      conflictingPath = 'cli-tool/components/skills/other/helper';
+    }
+    await assert.rejects(prepare(f.options(m), f.deps), error => {
+      for (const source of [path.join(f.baseline, 'skills/helper'), 'catalog skills:development/helper', 'cli-tool/components/skills/development/helper', conflictingPath]) assert(error.message.includes(source));
+      return /invocation collision/.test(error.message);
+    });
+  });
+});
+
+test('command comparison ignores unrelated sibling names and rejects matching special entries before reads', async t => {
+  const f = await fixture(t);
+  const repository = path.join(f.deps.workspace, '.claude');
+  await put(repository, 'commands/check.md', f.source['cli-tool/components/commands/tools/check.md']);
+  await put(repository, 'commands/unrelated\\name', 'unrelated');
+  const m = manifest({ commands: ['tools/check'] });
+  const o = f.options(m);
+  await prepare(o, f.deps);
+  await assert.rejects(fs.lstat(path.join(o.config, 'commands/check.md')), { code: 'ENOENT' });
+  const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
+  const generation = await fs.readFile(pointer, 'utf8');
+  await fs.unlink(path.join(repository, 'commands/check.md'));
+  const fifo = spawnSync('mkfifo', [path.join(repository, 'commands/check.md')]);
+  assert.equal(fifo.status, 0, 'fixture FIFO could not be created');
+  // A writer unblocks only if preparation opens the FIFO. It leaves a marker
+  // before supplying bytes, so an accidental read fails without hanging tests.
+  const marker = path.join(f.root, 'fifo-read');
+  const writer = spawn(process.execPath, ['--input-type=module', '-e',
+    'import * as fs from "node:fs/promises"; const out = await fs.open(process.argv[1], "w"); await fs.writeFile(process.argv[2], "read"); await out.write("unexpected bytes"); await out.close();',
+    path.join(repository, 'commands/check.md'), marker], { stdio: 'ignore' });
+  const stopped = new Promise(resolve => writer.once('close', resolve));
+  t.after(() => writer.kill());
+  const invalid = f.options(m);
+  await assert.rejects(prepare(invalid, f.deps), error => /invocation collision/.test(error.message) && error.message.includes('catalog commands:tools/check') && error.message.includes(path.join(repository, 'commands/check.md')));
+  await assert.rejects(fs.lstat(invalid.config), { code: 'ENOENT' });
+  writer.kill(); await stopped;
+  await assert.rejects(fs.lstat(marker), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert((await fs.lstat(path.join(repository, 'commands/check.md'))).isFIFO());
 });
 
 test('skills and commands share invocation identities across requested, baseline and repository sources', async t => {
   for (const sources of [['requested', 'requested'], ['baseline', 'requested'], ['requested', 'baseline'], ['repository', 'requested'], ['requested', 'repository'], ['baseline', 'repository'], ['repository', 'baseline']]) await t.test(sources.join('/'), async t => {
     const f = await fixture(t);
     const m = manifest();
-    f.source['cli-tool/components/commands/tools/helper.md'] = Buffer.from('Command body');
+    f.source['cli-tool/components/commands/tools/helper.md'] = Buffer.from(skill);
     if (sources[0] === 'requested') m.components.skills.push({ id: 'development/helper' });
-    else await put(sources[0] === 'baseline' ? f.baseline : path.join(f.deps.workspace, '.claude'), 'skills/helper/SKILL.md', skill.replace('name: helper', 'name: display-only'));
+    else await put(sources[0] === 'baseline' ? f.baseline : path.join(f.deps.workspace, '.claude'), 'skills/helper/SKILL.md', skill);
     if (sources[1] === 'requested') m.components.commands.push({ id: 'tools/helper' });
-    else await put(sources[1] === 'baseline' ? f.baseline : path.join(f.deps.workspace, '.claude'), 'commands/helper.md', 'Command body');
+    else await put(sources[1] === 'baseline' ? f.baseline : path.join(f.deps.workspace, '.claude'), 'commands/helper.md', skill);
     await baselineReceipt(f.baseline);
-    await assert.rejects(prepare(f.options(m), f.deps), /skill\/command invocation collision: helper/);
+    await assert.rejects(prepare(f.options(m), f.deps), error => /skill\/command invocation collision: helper/.test(error.message) && error.message.includes('skills ') && error.message.includes('commands ') && /different component kinds/.test(error.message));
     await assert.rejects(fs.stat(path.join(f.root, 'cache/profiles/reviewer/current.json')), { code: 'ENOENT' });
   });
   const f = await fixture(t);

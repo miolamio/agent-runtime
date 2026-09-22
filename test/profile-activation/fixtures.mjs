@@ -19,7 +19,9 @@ export const sources = {
       const config = await $.env.get('CLAUDE_CONFIG_DIR');
       const previous = await $.env.get('AIRUN_ACCEPTANCE_PREVIOUS_TRANSCRIPT');
       await $.fs.write('${root}/run-proofs/' + run + '.json', JSON.stringify({
-        config, historyImported: previous ? await $.fs.exists(config + '/' + previous) : false
+        config, historyImported: previous ? await $.fs.exists(config + '/' + previous) : false,
+        privateSkill: await $.fs.exists(config + '/skills/probe-skill/SKILL.md'),
+        privateCommand: await $.fs.exists(config + '/commands/probe-command.md')
       }));
       return next(e);
     });
@@ -56,6 +58,29 @@ export async function put(base, relative, data) {
   await fs.mkdir(path.dirname(target), { recursive: true });
   await fs.writeFile(target, typeof data === 'string' ? data : JSON.stringify(data));
 }
+export async function sourceSnapshot(directory) {
+  const entries = [];
+  async function visit(relative = '') {
+    const file = path.join(directory, relative), stat = await fs.lstat(file);
+    const entry = { path: relative || '.', mode: stat.mode & 0o7777 };
+    if (stat.isSymbolicLink()) entries.push({ ...entry, type: 'link', target: await fs.readlink(file) });
+    else if (stat.isDirectory()) {
+      entries.push({ ...entry, type: 'directory' });
+      for (const name of (await fs.readdir(file)).sort()) await visit(path.join(relative, name));
+    } else if (stat.isFile()) entries.push({ ...entry, type: 'file', size: stat.size, sha256: createHash('sha256').update(await fs.readFile(file)).digest('hex') });
+    else entries.push({ ...entry, type: 'special' });
+  }
+  await visit();
+  return entries;
+}
+async function baselineReceipt(baseline) {
+  const files = (await inventory(baseline, { links: true })).filter(file => file.path !== 'inventory.json');
+  await put(baseline, 'inventory.json', { version: 1, files: await Promise.all(files.map(async file => file.symlink !== undefined ? {
+    path: file.path, symlink: file.symlink
+  } : {
+    path: file.path, size: file.size, sha256: file.sha256, mode: (await fs.stat(path.join(baseline, file.path))).mode & 0o777
+  })) });
+}
 export async function createFixtures() {
   await fs.mkdir(root, { recursive: true });
   const baseline = path.join(root, 'baseline');
@@ -74,17 +99,37 @@ export async function createFixtures() {
   await put(marketplace, 'probe-native/hooks/hooks.json', { hooks: { SessionStart: [{ hooks: [{
     type: 'command', command: `printf '%s' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"AIRUN_NATIVE_HOOK_EXECUTED"}}'`
   }] }] } });
-  const files = await inventory(baseline);
-  await put(baseline, 'inventory.json', { version: 1, files: await Promise.all(files.map(async file => ({
-    path: file.path, size: file.size, sha256: file.sha256, mode: (await fs.stat(path.join(baseline, file.path))).mode & 0o777
-  }))) });
+  await baselineReceipt(baseline);
   await fs.mkdir(path.join(root, 'workspace'), { recursive: true });
   await fs.mkdir(path.join(root, 'run-proofs'), { recursive: true });
   await put(root, 'selected.json', manifest(true));
   await put(root, 'removed.json', manifest(false));
 }
+export async function createDedupFixtures() {
+  const repository = path.join(root, 'workspace/.claude');
+  const baseline = path.join(root, 'baseline');
+  const originalReceipt = await fs.readFile(path.join(baseline, 'inventory.json'));
+  const prefix = 'cli-tool/components/skills/testing/probe-skill/';
+  for (const directory of [baseline, repository]) {
+    for (const [file, bytes] of Object.entries(sources)) if (file.startsWith(prefix)) await put(directory, `skills/probe-skill/${file.slice(prefix.length)}`, bytes);
+    await put(directory, 'commands/probe-command.md', sources['cli-tool/components/commands/testing/probe-command.md']);
+    await fs.mkdir(path.join(directory, 'skills/probe-skill/empty'), { mode: 0o751 });
+  }
+  await fs.symlink('probe-skill', path.join(baseline, 'skills/probe-alias'));
+  await put(baseline, 'skills/probe-resource-alias/SKILL.md', markdown('probe-resource-alias', 'Acceptance baseline resource alias', 'AIRUN_BASELINE_ALIAS_ACTIVE. Read checklist.txt to use the linked baseline resource.'));
+  await fs.symlink('../probe-skill/references/deep/checklist.txt', path.join(baseline, 'skills/probe-resource-alias/checklist.txt'));
+  await fs.symlink('../probe-skill/empty', path.join(baseline, 'skills/probe-resource-alias/empty'));
+  await baselineReceipt(baseline);
+  return { repository, restoreBaseline: async () => {
+    // These directories exist only for this phase of the isolated fixture.
+    await fs.rm(path.join(baseline, 'skills'), { recursive: true });
+    await fs.rm(path.join(baseline, 'commands'), { recursive: true });
+    await fs.writeFile(path.join(baseline, 'inventory.json'), originalReceipt);
+  } };
+}
 export function fixtureDependencies() {
   return {
+    workspace: path.join(root, 'workspace'),
     run: async (command, args, options) => {
       if (command !== 'npm') return runCommand(command, args, options);
       await fs.appendFile(path.join(root, 'npm-invocations'), 'install\n');

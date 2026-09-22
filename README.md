@@ -761,6 +761,25 @@ flows. Parallel runs retain their existing no-state session policy. Browser
 ports are fixed, so `--browser` is rejected for multiple parallel workers. Genuine
 identity conflicts fail; repeating an identical baseline plugin is harmless.
 
+Plain skills and commands with the same invocation can also be shared across
+the image baseline, selected catalog references and repository configuration.
+They must have the same kind and complete resources: relative file paths, bytes,
+effective executable permissions and supported internal symlinks. For example,
+a retained repository file with mode `0645` differs from a managed `0755` file,
+even though both have an executable bit. A skill's directory name is
+its invocation; nested commands use colon-separated names. Matching `SKILL.md`
+text alone is insufficient if another resource differs or is missing.
+Preparation keeps one managed copy, or omits it when the repository already
+owns an identical definition. Repository files stay untouched, and every
+selected catalog identity remains in the retained receipts. Skill/command
+cross-kind collisions and unsafe overlapping symlinks fail before startup.
+Contained baseline aliases and resource links remain usable when their targets
+are omitted: required resources are copied privately outside skill/command
+discovery. Plugin wrapper and mod directory overlaps still fail before omission.
+Conflict diagnostics identify competing source paths, component kinds and catalog
+IDs so you can reconcile the definitions; resource contents are never printed.
+This equality rule does not extend to agents, MCPs, mods or native plugins.
+
 The inspected catalog currently has no installable `components.plugins` entries;
 unknown catalog selections fail while top-level native plugins remain supported.
 Mods require the compatible pinned Claude image and function hooks. Build the
