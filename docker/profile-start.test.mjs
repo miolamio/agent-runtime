@@ -78,6 +78,26 @@ testWithFlock('two private snapshots merge concurrent appends and inode replacem
   assert.equal((await fs.readFile(path.join(state, 'history.jsonl'), 'utf8')).trim().split('\n').length, 3);
 });
 
+testWithFlock('final save checks content even when a same-size rewrite has the same file stamp', async t => {
+  const { root, write } = await fixture(t);
+  const state = path.join(root, 'state');
+  const active = path.join(root, 'active');
+  const relative = 'plans/current.md';
+  await write(`state/${relative}`, 'first\n');
+  await fs.mkdir(active);
+  const original = await importHistory(state, active);
+  const privateFile = path.join(active, relative);
+  await fs.writeFile(privateFile, 'other\n');
+  const info = await fs.lstat(privateFile, { bigint: true });
+  // Simulate a coarse-timestamp filesystem reporting the imported stamp
+  // after an in-place rewrite. The content hash still describes "first".
+  original.set(relative, { ...original.get(relative), stamp: [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(':') });
+  await mergeHistory(state, active, original);
+  assert.equal(await fs.readFile(path.join(state, relative), 'utf8'), 'first\n');
+  await mergeHistory(state, active, original, { final: true });
+  assert.equal(await fs.readFile(path.join(state, relative), 'utf8'), 'other\n');
+});
+
 testWithFlock('appended JSONL records keep exact-byte deduplication, including an older duplicate', async t => {
   const { root, write } = await fixture(t);
   const old = '{"message":"старое"}\n';

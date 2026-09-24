@@ -209,9 +209,10 @@ export async function mergeHistory(state, config, original, { final = false } = 
       if (!activeInfo) continue;
       if (!activeInfo.isFile()) throw new Error(`session history is not a regular file: ${relative}`);
       const stamp = fileStamp(activeInfo);
-      // Inode plus nanosecond change times avoid reading and hashing an
-      // untouched private snapshot on every timer tick or clean exit.
-      if (imported?.stamp === stamp) continue;
+      // Inode plus nanosecond change times avoid rereading an untouched
+      // private snapshot on timer ticks. Final save must hash the bytes:
+      // coarse filesystem timestamps can miss a same-size in-place rewrite.
+      if (!final && imported?.stamp === stamp) continue;
       const data = await readHistoryFile(active);
       if (data === null) continue;
       const currentHash = digest(data);
