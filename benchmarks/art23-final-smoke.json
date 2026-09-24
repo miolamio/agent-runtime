@@ -1,0 +1,87 @@
+{
+  "date": "2026-09-24T06:08:37.280Z",
+  "image": "agent-runtime:art23-final",
+  "imageId": "sha256:5aa3948ad3263172ad5f2264a7c79661707407d1f8c5cc65492876da03e0cfd8",
+  "imageSizeBytes": 2335974173,
+  "imageProfileStartSha256": "bfaa02634a370647056543a261e997d26b4140af148de95e6477de46961baafe",
+  "imageAdapterSha256": "fcf0dae8ceeaf80aac84f12354dce2cec8b56b7d511f49b878723de6df6d1586",
+  "sourceProfileStartSha256": "bfaa02634a370647056543a261e997d26b4140af148de95e6477de46961baafe",
+  "sourceAdapterSha256": "fcf0dae8ceeaf80aac84f12354dce2cec8b56b7d511f49b878723de6df6d1586",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "method": {
+    "provider": "none",
+    "network": "none",
+    "profile": "empty components, baked baseline only",
+    "command": "/bin/true",
+    "reps": 3,
+    "largeMiB": 1,
+    "jsonlPartMiB": 256
+  },
+  "startup": {
+    "coldNoState": 1632.1,
+    "warmNoState": {
+      "samplesMs": [
+        866.1,
+        636.4,
+        669.7
+      ],
+      "medianMs": 669.7,
+      "minMs": 636.4,
+      "maxMs": 866.1
+    },
+    "typicalState": {
+      "samplesMs": [
+        700.5,
+        661.5,
+        670.3
+      ],
+      "medianMs": 670.3,
+      "minMs": 661.5,
+      "maxMs": 700.5
+    },
+    "largeState": {
+      "samplesMs": [
+        656.6,
+        650.7
+      ],
+      "medianMs": 656.6,
+      "minMs": 650.7,
+      "maxMs": 656.6
+    }
+  },
+  "stages": {
+    "typical": {
+      "versionMs": 9.6,
+      "importMs": 23.5,
+      "adapterMs": 502,
+      "maxRssMiB": 70
+    },
+    "large": {
+      "versionMs": 6.3,
+      "importMs": 24.3,
+      "adapterMs": 490,
+      "maxRssMiB": 71
+    }
+  },
+  "merge": {
+    "typical": {
+      "sizeMiB": 1,
+      "importMs": 23,
+      "unchangedMs": 18.2,
+      "changedMs": 20.8,
+      "unchangedRssMiB": 52,
+      "changedRssMiB": 60
+    },
+    "large": {
+      "sizeMiB": 1,
+      "importMs": 23.4,
+      "unchangedMs": 16,
+      "changedMs": 23.8,
+      "unchangedRssMiB": 52,
+      "changedRssMiB": 60
+    }
+  }
+}

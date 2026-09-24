@@ -6,10 +6,12 @@ from commit `5293555` (ART-22 GC), image ID
 `sha256:b060f29d59ad2b8ca0e85136a30c2ad65b866699974bbbfaddee3055bd19afd2`.
 The optimized image ID was
 `sha256:056685143d61a37e423bdc4de3465bc6beced7fc801026cbc9b3c3a5841ea89f`.
-Both image script hashes match the corresponding source recorded in
-`art23-before.json` and `art23-after-final.json`; the only source differences
-affect ART-23. The source script hashes in the after JSON also match this
-patch. ART-22's later `50f9a65` fix to fixture cache GC is not in either image.
+Both image script hashes matched the corresponding source recorded in
+`art23-before.json` and `art23-after-final.json` at measurement time; the
+source differences between those images affect ART-23 only. The ART-23 logic
+was subsequently rebased without changes onto `50f9a65`. That ART-22 fixture
+cache GC fix is not in either paired comparison image and changes the final
+adapter script hash.
 
 Reproduce with `node benchmarks/art23-profile-startup.mjs --image
 agent-runtime:art23-after --compare-image agent-runtime:art23-before --output
@@ -37,6 +39,13 @@ no-profile path. The adapter dominated ordinary startup. Caching successful
 baseline verification by image build ID and receipt avoids rescanning the
 immutable image baseline on each warm run. The private config still receives
 its normal checks.
+
+After the rebase, a smoke run on an exact final image built from `50f9a65` plus
+this patch (`sha256:5aa3948ad3263172ad5f2264a7c79661707407d1f8c5cc65492876da03e0cfd8`)
+measured a 0.670 s median for warm startup with 1 MiB state (three samples:
+0.701, 0.662, 0.670 s). Both installed script hashes matched the final source.
+Its raw output is `art23-final-smoke.json`. This smoke run is not part of the
+1 GiB paired comparison and used only 1 MiB of generated history.
 
 For 1 GiB state, startup does not show a reliable improvement. Standalone
 before samples were 6.394 and 4.031 s; after samples were 4.397 and 3.767 s.
