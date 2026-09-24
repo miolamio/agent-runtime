@@ -29,6 +29,10 @@ The test checks behavior of the actual Claude CLI:
 - The actual `Skill` tool expands catalog skill, command, and native plugin
   skill bodies into subsequent model requests.
 - A native plugin installed from a local marketplace runs its session hook.
+- On the first launch, the actual image baseline's GitHub marketplaces load a
+  root-sourced, non-strict `example-skills` skill and an official `superpowers`
+  skill. The test checks their expanded bodies and rejects marketplace seed
+  errors in Claude's debug log.
 - A mod loaded from the adapter's skills directory executes a function hook.
 - Removing the selection removes role, skills, commands, plugins, MCP tools and
   mod callbacks despite a warm cache; re-adding restores them without another
@@ -51,7 +55,7 @@ Fixture layers: source catalog inventory/bytes, controlled installer HTTP
 responses, installer replacement for the remaining activation fixtures, npm
 registry/package, minimal baseline, local MCP child, and predetermined model
 responses. Predetermined responses test execution and configuration, not model
-reasoning. Live catalog downloads, shipped baseline content, Go/CLI transport,
+reasoning. Live catalog downloads, Go/CLI transport,
 explicit remote updates, and upstream catalog compatibility are covered by
 separate tests. Catalog plugins have no supported upstream entry and are not
 invented for this test.
@@ -61,6 +65,9 @@ wraps only the command runner's environment with the fetch preload. Other
 catalog activation fixtures retain their injected installer in `fixtures.mjs`.
 The npm wrapper only supplies an isolated registry/cache environment; production
 `provisionNpm`, actual npm and the installed MCP binary all run. Native
-installation also remains production code. Function-hook syntax
+installation also remains production code for the local marketplace fixture.
+The GitHub marketplace probe copies its source from the image baseline instead
+of installing over the network; production activation and Claude loading are
+exercised with external networking disabled. Function-hook syntax
 follows Anthropic's [published plugin declarations](https://github.com/anthropics/claude-code/blob/main/mods/types/claude-code.d.ts).
 All artifacts and captured requests stay inside the disposable container.

@@ -332,6 +332,7 @@ test('native plugins use retained complete payloads, explicit activation and see
   assert.equal(settings.extraKnownMarketplaces.fixture.autoUpdate, false);
   const known = JSON.parse(await fs.readFile(path.join(o.config, 'airun-plugin-seed/known_marketplaces.json')));
   assert.equal(known.fixture.autoUpdate, false);
+  assert(!Number.isNaN(Date.parse(known.fixture.lastUpdated)));
   assert(!JSON.stringify(known).includes('/staging/'));
   await prepare(f.options(m), { ...f.deps, installNative: () => assert.fail('warm native installation') });
   assert.equal(f.calls.native, 1);
@@ -350,6 +351,55 @@ test('native plugin verification catches omitted nested resources, independently
   await verifyNativeSource(installed, { source: './plugin' }, marketplace, { gitCommitSha: 'a'.repeat(40) });
   await fs.rm(path.join(installed, 'skills/example/data.txt'));
   await assert.rejects(verifyNativeSource(installed, { source: './plugin' }, marketplace, {}), /complete marketplace source inventory/);
+});
+
+test('root-sourced non-strict native plugins activate without plugin.json and retain their declared skills', async t => {
+  const f = await fixture(t);
+  const marketplace = path.join(f.root, 'marketplace');
+  const installed = path.join(f.root, 'installed');
+  const entries = [
+    { name: 'example-skills', source: './', strict: false, skills: ['./skills/example'] },
+    { name: 'document-skills', source: './', strict: false, skills: ['./skills/xlsx'] }
+  ];
+  await json(marketplace, '.claude-plugin/marketplace.json', { name: 'anthropic-agent-skills', owner: { name: 'Anthropic' }, plugins: entries });
+  await put(marketplace, 'skills/example/SKILL.md', skill);
+  await put(marketplace, 'skills/xlsx/SKILL.md', skill);
+  await put(marketplace, '.git/HEAD', 'ref: refs/heads/main\n');
+  await fs.cp(marketplace, installed, { recursive: true });
+  await fs.rm(path.join(installed, '.git'), { recursive: true });
+  await put(installed, '.in_use', '');
+  await verifyNativeSource(installed, entries[0], marketplace, { gitCommitSha: 'a'.repeat(40) });
+  await verifyNativeSource(installed, { ...entries[0], source: '.' }, marketplace, {});
+
+  f.deps.installNative = async (ref, directory) => {
+    const [name] = ref.split('@');
+    await fs.cp(installed, path.join(directory, 'payloads/0'), { recursive: true });
+    await fs.rm(path.join(directory, 'payloads/0/.in_use'));
+    await json(directory, 'native.json', { version: 1, plugins: [{
+      ref, name, directory: 'payloads/0', source: { source: 'github', repo: 'anthropics/skills' },
+      marketplace: { name: 'anthropic-agent-skills', owner: { name: 'Anthropic' }, entry: entries.find(e => e.name === name) }
+    }] });
+  };
+  const m = manifest();
+  m.native_plugins = entries.map(entry => `${entry.name}@anthropic-agent-skills`);
+  const o = f.options(m);
+  const first = await prepare(o, f.deps);
+  assert.equal(first.launch.env.CLAUDE_CODE_PLUGIN_SEED_DIR, path.join(o.config, 'airun-plugin-seed'));
+  const settings = JSON.parse(await fs.readFile(path.join(o.config, 'settings.json')));
+  const catalog = JSON.parse(await fs.readFile(path.join(o.config, 'airun-plugin-seed/marketplaces/anthropic-agent-skills/.claude-plugin/marketplace.json')));
+  const known = JSON.parse(await fs.readFile(path.join(o.config, 'airun-plugin-seed/known_marketplaces.json')));
+  assert.equal(known['anthropic-agent-skills'].source.source, 'directory');
+  assert.equal(known['anthropic-agent-skills'].source.path, path.join(o.config, 'airun-plugin-seed/marketplaces/anthropic-agent-skills'));
+  assert(!Number.isNaN(Date.parse(known['anthropic-agent-skills'].lastUpdated)));
+  assert.equal(await fs.readFile(path.join(o.config, 'airun-plugin-seed/marketplaces/anthropic-agent-skills/skills/example/SKILL.md'), 'utf8'), skill);
+  for (const entry of entries) {
+    assert.equal(settings.enabledPlugins[`${entry.name}@anthropic-agent-skills`], true);
+    assert.deepEqual(catalog.plugins.find(p => p.name === entry.name).skills, entry.skills);
+  }
+  await prepare(f.options(m), { ...f.deps, installNative: () => assert.fail('warm native installation') });
+
+  await fs.rm(path.join(installed, 'skills/example/SKILL.md'));
+  await assert.rejects(verifyNativeSource(installed, entries[0], marketplace, {}), /complete marketplace source inventory/);
 });
 
 test('baseline duplicate refs are harmless, distinct sources claiming baseline identity fail', async t => {

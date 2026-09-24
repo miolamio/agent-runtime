@@ -250,8 +250,12 @@ async function validateComponent(directory, type, id, deps) {
     }
   } else if (type === 'mcps') mcpProjection(await readJSON(path.join(directory, p.target)));
 }
-async function validatePlugin(directory) {
-  const manifest = await readJSON(path.join(directory, '.claude-plugin/plugin.json'));
+async function validatePlugin(directory, entry) {
+  const declared = await readJSON(path.join(directory, '.claude-plugin/plugin.json'), null);
+  // A marketplace entry with strict:false can supply the plugin definition
+  // without a plugin.json in its source directory (anthropics/skills does this).
+  const manifest = declared ?? (entry?.strict === false ? entry : null);
+  if (!plain(manifest)) fail('plugin requires a valid manifest');
   if (typeof manifest.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(manifest.name)) fail('plugin requires a valid manifest name');
   for (const field of ['commands', 'agents', 'skills', 'hooks', 'mcpServers', 'lspServers']) {
     const values = typeof manifest[field] === 'string' ? [manifest[field]] : Array.isArray(manifest[field]) ? manifest[field] : [];
@@ -287,9 +291,10 @@ async function installCatalog(type, id, directory, deps) {
 export async function verifyNativeSource(root, entry, marketplaceDir, registration) {
   const actual = (await inventory(root, { links: true })).filter(file => file.path !== '.in_use');
   const source = entry.source;
-  if (typeof source === 'string' && source.startsWith('./')) {
-    const expectedRoot = path.join(marketplaceDir, safeRelative(source.slice(2)));
-    const expected = (await inventory(expectedRoot, { links: true })).filter(file => file.path !== '.in_use');
+  if (typeof source === 'string' && (source === '.' || source.startsWith('./'))) {
+    const relative = source === '.' ? '' : source.slice(2);
+    const expectedRoot = relative ? path.join(marketplaceDir, safeRelative(relative)) : marketplaceDir;
+    const expected = await inventory(expectedRoot, { links: true, ignore: file => file === '.git' || file.startsWith('.git/') || file === '.in_use' });
     const content = files => files.map(({ path, sha256, size, symlink, executable }) => ({ path, sha256, size, symlink, executable }));
     if (stable(content(actual)) !== stable(content(expected))) fail('native plugin differs from complete marketplace source inventory');
     return { kind: 'marketplace-directory', path: source, commit: registration.gitCommitSha ?? null };
@@ -345,13 +350,13 @@ async function installNative(ref, directory, baseline, deps) {
     const [name, market] = identity.split('@');
     const root = record.installPath;
     if (typeof root !== 'string' || !path.resolve(root).startsWith(`${path.resolve(home)}/`)) fail('native plugin escaped isolated installation');
-    const manifest = await validatePlugin(root);
-    await deps.run('claude', ['plugin', 'validate', root], { cwd: home, env });
     const mkt = sources[market];
     if (!plain(mkt?.source)) fail('native marketplace metadata missing');
     const catalog = await readJSON(path.join(mkt.installLocation, '.claude-plugin/marketplace.json'));
     const entry = catalog.plugins?.find(p => p.name === name);
     if (!entry) fail(`native plugin ${identity}: marketplace entry missing`);
+    const manifest = await validatePlugin(root, entry);
+    await deps.run('claude', ['plugin', 'validate', root], { cwd: home, env });
     const provenance = await verifyNativeSource(root, entry, mkt.installLocation, record);
     const target = `payloads/${plugins.length}`;
     await copyFiles(root, path.join(directory, target), (await inventory(root, { links: true })).filter(file => file.path !== '.in_use'));
@@ -737,14 +742,34 @@ async function addPluginToSeed(plugin, sourceDir, seed, config, state) {
   const version = hash(stable(files)).slice(0, 24);
   const relative = `cache/${market}/${name}/${version}`;
   await copyFiles(sourceDir, path.join(seed, relative), files);
-  const known = state.known[market];
-  if (known && stable(known.source) !== stable(plugin.source)) fail(`marketplace source collision: ${market}`);
-  state.known[market] = { source: plugin.source, installLocation: path.join(seed, 'marketplaces', market), autoUpdate: false };
+  if (['.', './'].includes(plugin.marketplace.entry.source)) {
+    // Non-strict root-sourced plugins resolve declared skills relative to the
+    // marketplace clone, even when the installed plugin cache is complete.
+    const rootFiles = files.filter(file => file.path !== '.in_use' && file.path !== '.git' && !file.path.startsWith('.git/'));
+    const rootDigest = hash(stable(rootFiles));
+    const previousRoot = state.marketplaceRoots[market];
+    if (previousRoot && previousRoot !== rootDigest) fail(`marketplace root collision: ${market}`);
+    if (!previousRoot) await copyFiles(sourceDir, path.join(seed, 'marketplaces', market), rootFiles);
+    state.marketplaceRoots[market] = rootDigest;
+  }
+  const originalSource = state.sources[market];
+  if (originalSource && stable(originalSource) !== stable(plugin.source)) fail(`marketplace source collision: ${market}`);
+  state.sources[market] = plugin.source;
+  state.known[market] = {
+    // Claude loads the immutable, verified seed as a local marketplace on the
+    // first launch. A GitHub descriptor here causes it to defer registration.
+    source: plugin.source.source === 'github'
+      ? { source: 'directory', path: path.join(config, 'airun-plugin-seed', 'marketplaces', market) }
+      : plugin.source,
+    installLocation: path.join(seed, 'marketplaces', market),
+    lastUpdated: new Date().toISOString(),
+    autoUpdate: false
+  };
   state.catalogs[market] ??= { name: market, owner: plugin.marketplace.owner ?? { name: market }, plugins: [] };
   state.catalogs[market].plugins.push({ ...plugin.marketplace.entry, name, version });
   state.installed[plugin.ref] = [{ scope: 'user', installPath: path.join(seed, relative), version }];
   state.enabled[plugin.ref] = true;
-  const manifest = await validatePlugin(sourceDir);
+  const manifest = await validatePlugin(sourceDir, plugin.marketplace.entry);
   const agentFiles = new Set();
   await scanAgents(path.join(sourceDir, 'agents'), state.parseYAML, state.agents, plugin.name, agentFiles);
   const agentPaths = typeof manifest.agents === 'string' ? [manifest.agents] : manifest.agents ?? [];
@@ -793,7 +818,7 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
   if (hosts && await exists(hosts)) await copyFiles(hosts, path.join(target, 'agents'));
   const seed = path.join(target, 'airun-plugin-seed');
   const finalSeed = path.join(finalConfig, 'airun-plugin-seed');
-  const plugins = { refs: new Set(), names: new Set(), known: {}, catalogs: {}, installed: {}, enabled: {}, parseYAML: deps.parseYAML, agents: agentNames, mcpNames };
+  const plugins = { refs: new Set(), names: new Set(), sources: {}, marketplaceRoots: {}, known: {}, catalogs: {}, installed: {}, enabled: {}, parseYAML: deps.parseYAML, agents: agentNames, mcpNames };
   const bases = await baselineNative(baseline);
   if (bases.size) {
     const registry = await readJSON(path.join(baseline, 'plugins/installed_plugins.json'));

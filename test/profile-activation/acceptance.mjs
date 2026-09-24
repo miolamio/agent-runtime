@@ -4,8 +4,8 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { startProfile } from '/airun/profile-start.mjs';
-import { inventory } from '/airun/component-adapter.mjs';
-import { createFixtures, createDedupFixtures, sourceSnapshot, sources, root } from './fixtures.mjs';
+import { inventory, prepare } from '/airun/component-adapter.mjs';
+import { createFixtures, createDedupFixtures, sourceSnapshot, sources, root, manifest, put } from './fixtures.mjs';
 import { verifyPinnedInstaller } from './installer-acceptance.mjs';
 import { startRegistry } from './npm-registry.mjs';
 
@@ -261,6 +261,56 @@ async function main() {
     assert.deepEqual(await runtimeSnapshot(), retainedRuntime);
     assert.equal(await fs.readFile(path.join(root, 'npm-invocations'), 'utf8'), 'install\n');
     console.log('PASS synthetic credentials remain absent from retained artifacts, receipts and model request content');
+    // Exercise the image's real GitHub marketplace metadata and baseline
+    // plugins with Claude itself. The installer output is copied from the
+    // baked-in anthropic marketplace so this probe stays offline.
+    const githubRoot = path.join(root, 'github-seed');
+    const githubConfig = path.join(githubRoot, 'config');
+    const imageBaseline = '/opt/airun/profile-baseline';
+    const market = 'anthropic-agent-skills';
+    const marketplace = path.join(imageBaseline, 'plugins/marketplaces', market);
+    const known = JSON.parse(await fs.readFile(path.join(imageBaseline, 'plugins/known_marketplaces.json')));
+    const catalog = JSON.parse(await fs.readFile(path.join(marketplace, '.claude-plugin/marketplace.json')));
+    const entry = catalog.plugins.find(plugin => plugin.name === 'example-skills');
+    assert(entry && entry.source === './' && entry.strict === false);
+    const githubManifest = { ...manifest(false), profile_key: 'github-seed', native_plugins: [`example-skills@${market}`] };
+    const preparedGithub = await prepare({ manifest: githubManifest, cache: path.join(githubRoot, 'cache'), config: githubConfig, baseline: imageBaseline }, {
+      workspace: path.join(root, 'workspace'),
+      installNative: async (ref, directory) => {
+        assert.equal(ref, `example-skills@${market}`);
+        const target = path.join(directory, 'payloads/0');
+        await fs.cp(marketplace, target, { recursive: true, filter: source => {
+          const parts = path.relative(marketplace, source).split(path.sep);
+          return !parts.includes('.git') && !parts.includes('.in_use');
+        } });
+        await put(directory, 'native.json', { version: 1, plugins: [{
+          ref, name: 'example-skills', version: '1.0.0', directory: 'payloads/0',
+          source: known[market].source, marketplace: { owner: catalog.owner, entry }
+        }] });
+      }
+    });
+    assert.equal(preparedGithub.launch.env.CLAUDE_CODE_PLUGIN_SEED_DIR, path.join(githubConfig, 'airun-plugin-seed'));
+    const githubKnown = JSON.parse(await fs.readFile(path.join(githubConfig, 'airun-plugin-seed/known_marketplaces.json')));
+    for (const name of [market, 'claude-plugins-official']) assert(!Number.isNaN(Date.parse(githubKnown[name].lastUpdated)));
+    await put(githubConfig, '.claude.json', { hasCompletedOnboarding: true, hasTrustDialogAccepted: true, numStartups: 1 });
+    plan = [
+      { name: 'Skill', input: { skill: 'example-skills:algorithmic-art' } },
+      { name: 'Skill', input: { skill: 'superpowers:using-superpowers' } }
+    ]; turn = 0; requests.length = 0;
+    const githubDebug = path.join(githubRoot, 'claude-debug.log');
+    const githubSession = await launchClaude({ ...env, CLAUDE_CONFIG_DIR: githubConfig, ...preparedGithub.launch.env },
+      'AIRUN_GITHUB_SEED_PROBE: use both plugin skills.', ['--debug-file', githubDebug]);
+    const githubRequests = requests.splice(0);
+    assert.equal(githubSession.code, 0, `GitHub seed session failed: ${githubSession.stderr}\n${githubSession.stdout.slice(-1000)}`);
+    const debug = await fs.readFile(githubDebug, 'utf8');
+    const githubBodies = JSON.stringify(githubRequests);
+    const githubResults = githubRequests.flatMap(request => request.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])).filter(block => block.type === 'tool_result');
+    assert(githubBodies.includes('Algorithmic philosophies are computational aesthetic movements'), `GitHub native skill body was not expanded on first launch: ${JSON.stringify(githubResults).slice(0, 800)}\n${debug.split('\n').filter(line => /example-skills|anthropic-agent-skills|Seed known/.test(line)).slice(0, 24).join('\n')}`);
+    assert(githubBodies.includes('If you think there is even a 1% chance'), `baseline plugin skill body was not expanded on first launch: ${JSON.stringify(githubResults).slice(0, 1400)}`);
+    for (const id of [1, 2]) assert(githubResults.some(block => block.tool_use_id === `toolu_probe_${id}` && !block.is_error), `plugin skill ${id} failed on first launch`);
+    assert(!debug.includes('Seed known_marketplaces.json invalid'), 'Claude rejected seed marketplace metadata');
+    assert(!debug.includes('not a directory or file source'), `Claude rejected marketplace settings source: ${debug.split('\n').filter(line => line.includes('not a directory or file source')).slice(0, 4).join('\n')}`);
+    console.log('PASS first Claude launch loads GitHub root-sourced non-strict skill and official baseline plugin');
     console.log('REAL: pinned installer agent/skill downloads, npm provisioning and retained binary, Claude CLI, supervisor/cache, native installation, MCP, hooks and history.');
     console.log('FIXTURES: catalog responses (remaining catalog installs injected), npm registry/package, minimal baseline, MCP child and loopback model responses. External networking is disabled.');
   } finally {
@@ -268,6 +318,20 @@ async function main() {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
   }
+}
+
+async function launchClaude(env, prompt, extra = []) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--output-format', 'stream-json', '--verbose', '--max-turns', '4', ...extra], {
+      cwd: path.join(root, 'workspace'), env, stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const timeout = setTimeout(() => { child.kill('SIGTERM'); setTimeout(() => child.kill('SIGKILL'), 3000).unref(); }, 45000);
+    child.once('error', error => { clearTimeout(timeout); reject(error); });
+    child.once('close', code => { clearTimeout(timeout); resolve({ code, stdout, stderr }); });
+  });
 }
 
 async function launch(env, prompt, extra = []) {
