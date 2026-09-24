@@ -10,10 +10,12 @@ if (!cache || !cache.startsWith('/') || (state && !state.startsWith('/'))) {
   process.exitCode = 2;
 } else {
   try {
-    await collectCache(cache);
+    let collected = false;
+    if (process.env.AIRUN_CACHE_GC_SKIP === '1') console.error('[airun] warning: component cache GC deferred while a legacy container may be active');
+    else { await collectCache(cache); collected = true; }
     const removed = state ? await cleanRecovery(state) : [];
     for (const directory of removed) console.error(`[airun] removed recoverable session: ${directory}`);
-    console.error(`[airun] component cache collected; removed ${removed.length} recoverable session(s)`);
+    console.error(`[airun] component cache ${collected ? 'collected' : 'unchanged'}; removed ${removed.length} recoverable session(s)`);
   } catch (error) {
     console.error(`[airun] profile cleanup failed: ${error.message}`);
     process.exitCode = 1;

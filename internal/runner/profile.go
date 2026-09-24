@@ -16,6 +16,25 @@ import (
 
 const profileManifestPath = "/run/airun/profile.json"
 
+// Older images use the component volume without leases or a cache lock. Keep
+// GC deferred while one is running, including during an old-image update.
+func legacyCacheContainerActive() (bool, error) {
+	out, err := exec.Command("docker", "ps", "--filter", "volume="+componentVolumeName, "--format", "{{.ID}}").Output()
+	if err != nil {
+		return true, fmt.Errorf("list component-cache containers: %w", err)
+	}
+	for _, id := range strings.Fields(string(out)) {
+		version, err := exec.Command("docker", "inspect", "--format", `{{index .Config.Labels "io.airun.cache-gc-version"}}`, id).Output()
+		if err != nil {
+			return true, fmt.Errorf("inspect component-cache container %s: %w", id, err)
+		}
+		if strings.TrimSpace(string(version)) != "1" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func requireProfileImage() error {
 	out, err := exec.Command("docker", "image", "inspect", "--format",
 		`{{index .Config.Labels "io.airun.profile-manifest-version"}}`, ImageName).Output()
@@ -99,6 +118,12 @@ func UpdateProfile(cfg *config.Config, name string) error {
 		return err
 	}
 	extraEnv = append(extraEnv, "AIRUN_PROFILE_ACTION=update")
+	if legacy, checkErr := legacyCacheContainerActive(); legacy {
+		extraEnv = append(extraEnv, "AIRUN_CACHE_GC_SKIP=1")
+		if checkErr != nil {
+			fmt.Fprintf(os.Stderr, "[airun] warning: cache GC deferred: %v\n", checkErr)
+		}
+	}
 	envPath, err := envfile.Write(extraEnv)
 	if err != nil {
 		return err
@@ -129,6 +154,12 @@ func CleanProfile(name string) error {
 	args := []string{"run", "--rm", "--name", "airun-profile-gc-" + history.NewRunID(),
 		"-e", "AIRUN_PROFILE_MAINTENANCE=1", "-e", "AIRUN_COMPONENT_CACHE=" + componentMountPath,
 		"-v", componentVolumeName + ":" + componentMountPath}
+	if legacy, checkErr := legacyCacheContainerActive(); legacy {
+		args = append(args, "-e", "AIRUN_CACHE_GC_SKIP=1")
+		if checkErr != nil {
+			fmt.Fprintf(os.Stderr, "[airun] warning: cache GC deferred: %v\n", checkErr)
+		}
+	}
 	script := []string{"node", "/usr/local/lib/airun/profile-clean.mjs", componentMountPath}
 	stateVolume := stateVolumeForProfile(name)
 	if out, err := exec.Command("docker", "volume", "inspect", stateVolume).CombinedOutput(); err == nil {

@@ -4,6 +4,7 @@
 
 FROM buildpack-deps:bookworm-scm
 LABEL io.airun.profile-manifest-version="1"
+LABEL io.airun.cache-gc-version="1"
 
 ARG USERNAME=claude
 ARG GIT_DELTA_VERSION=0.19.2

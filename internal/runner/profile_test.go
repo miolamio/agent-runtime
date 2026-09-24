@@ -85,6 +85,11 @@ if [ "$1" = 'image' ]; then
   printf '%s\n' "${TEST_MANIFEST_VERSION:-1}"
   exit 0
 fi
+if [ "$1" = 'ps' ]; then
+  if [ "${TEST_LEGACY_ACTIVE:-}" = 1 ]; then printf 'legacy-container\n'; fi
+  exit 0
+fi
+if [ "$1" = 'inspect' ]; then printf '%s\n' "${TEST_GC_VERSION:-<no value>}"; exit 0; fi
 printf '%s\n' "$@" > "$HOME/docker-args"
 previous=''
 for arg do
@@ -122,6 +127,23 @@ exit "${TEST_DOCKER_EXIT:-0}"
 	if !strings.Contains(string(env), "AIRUN_PROFILE_ACTION=update") || strings.Contains(string(env), "provider-secret") || strings.Contains(string(env), "AIRUN_COMPONENT_ENV_") {
 		t.Fatal("invalid preparation-only environment")
 	}
+	t.Setenv("TEST_LEGACY_ACTIVE", "1")
+	if err := UpdateProfile(cfg, "reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	env, err = os.ReadFile(filepath.Join(home, "docker-env"))
+	if err != nil || !strings.Contains(string(env), "AIRUN_CACHE_GC_SKIP=1") {
+		t.Fatal("legacy container did not defer GC")
+	}
+	t.Setenv("TEST_GC_VERSION", "1")
+	if err := UpdateProfile(cfg, "reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	env, err = os.ReadFile(filepath.Join(home, "docker-env"))
+	if err != nil || strings.Contains(string(env), "AIRUN_CACHE_GC_SKIP=1") {
+		t.Fatal("GC remained deferred for a current container")
+	}
+	t.Setenv("TEST_LEGACY_ACTIVE", "")
 	assertNoProfileTemporaryFiles(t, home)
 	t.Setenv("TEST_MANIFEST_VERSION", "0")
 	if err := UpdateProfile(cfg, "reviewer"); err == nil || !strings.Contains(err.Error(), "rebuild") {
@@ -153,6 +175,11 @@ func TestCleanProfileMountsSharedCacheAndOnlyExistingState(t *testing.T) {
 	}
 	script := `#!/bin/sh
 if [ "$1" = image ]; then printf '1\n'; exit 0; fi
+if [ "$1" = ps ]; then
+  if [ "${TEST_LEGACY_ACTIVE:-}" = 1 ]; then printf 'legacy-container\n'; fi
+  exit 0
+fi
+if [ "$1" = inspect ]; then printf '<no value>\n'; exit 0; fi
 if [ "$1" = volume ]; then
   if [ "${TEST_STATE_EXISTS:-}" = 1 ]; then exit 0; fi
   printf 'Error: No such volume\n' >&2
@@ -181,6 +208,14 @@ printf '%s\n' "$@" > "$HOME/docker-clean-args"
 		if hasState != (exists == "1") {
 			t.Fatalf("unexpected state mount: %s", args)
 		}
+	}
+	t.Setenv("TEST_LEGACY_ACTIVE", "1")
+	if err := CleanProfile("reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "docker-clean-args"))
+	if err != nil || !strings.Contains(string(data), "AIRUN_CACHE_GC_SKIP=1") {
+		t.Fatal("cleanup did not defer GC for a legacy container")
 	}
 	if err := CleanProfile("../escape"); err == nil {
 		t.Fatal("unsafe profile selector was accepted")

@@ -157,6 +157,7 @@ test('real Linux runtime lease protects an active MCP command through GC', { ski
   const config = path.join(root, 'config');
   const runtime = path.join(cache, 'runtimes/npm-fixture');
   await write('cache/runtimes/npm-fixture/bin.js', 'process.exit(0)');
+  await write('cache/runtimes/npm-fixture/.airun-gc-managed', '1\n');
   await write('config/airun-runtime-lease.json', JSON.stringify({ runtimes: ['npm-fixture'] }));
   const release = await runtimeLease(cache, config);
   t.after(release);

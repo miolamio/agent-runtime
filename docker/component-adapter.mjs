@@ -87,6 +87,30 @@ export const withCacheLock = (cache, mode, action) => withFileLock(path.join(cac
 const digestName = name => /^[a-f0-9]{64}$/.test(name);
 const runtimeName = name => /^npm-[a-zA-Z0-9]+$/.test(name);
 const generationName = name => /^[a-f0-9-]{36}\.json$/.test(name);
+const GC_MARKER = '.airun-gc-managed';
+const GC_MARKER_VALUE = '1\n';
+async function managed(file) {
+  try {
+    if (!(await fs.lstat(file)).isFile()) return false;
+    return await fs.readFile(file, 'utf8') === GC_MARKER_VALUE;
+  } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+async function markPayload(cache, digest) {
+  const root = path.join(cache, 'managed');
+  await fs.mkdir(root, { recursive: true });
+  if (!(await fs.lstat(root)).isDirectory()) fail('unsafe managed cache directory');
+  const directory = path.join(root, 'payloads');
+  await fs.mkdir(directory, { recursive: true });
+  if (!(await fs.lstat(directory)).isDirectory()) fail('unsafe managed payload directory');
+  const file = path.join(directory, digest);
+  if (await managed(file)) return;
+  if (await exists(file)) fail('unsafe payload GC marker');
+  await fs.writeFile(file, GC_MARKER_VALUE, { flag: 'wx', mode: 0o600 });
+}
+function stagingName(name) {
+  const hyphen = name.lastIndexOf('-');
+  return hyphen > 0 && PROFILE.test(name.slice(0, hyphen)) && /^[a-zA-Z0-9]{6}$/.test(name.slice(hyphen + 1));
+}
 async function entries(directory) {
   try {
     if (!(await fs.lstat(directory)).isDirectory()) fail(`unsafe cache directory: ${directory}`);
@@ -94,20 +118,13 @@ async function entries(directory) {
   }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
-async function removeUnused(directory, keep, accept = () => true) {
-  for (const entry of await entries(directory)) {
-    if (!accept(entry.name) || keep.has(entry.name)) continue;
-    await fs.rm(path.join(directory, entry.name), { recursive: true, force: true });
-  }
-}
-
 // Called only under the exclusive cache lock. A malformed live pointer/lease
 // aborts collection: preserving bytes is safer than guessing what is unused.
 export async function collectCache(cache, injected = {}) {
   const deps = { lockCache: withCacheLock, leaseBusy: leaseIsBusy, ...injected };
   return deps.lockCache(cache, 'exclusive', async () => {
     if (!(await fs.lstat(cache)).isDirectory()) fail('unsafe component cache root');
-    for (const name of ['profiles', 'payloads', 'runtimes', 'staging', 'leases']) await entries(path.join(cache, name));
+    for (const name of ['profiles', 'payloads', 'runtimes', 'staging', 'leases', 'managed', 'managed/payloads']) await entries(path.join(cache, name));
     const livePayloads = new Set();
     const liveRuntimes = new Set();
     const generations = new Map();
@@ -144,10 +161,41 @@ export async function collectCache(cache, injected = {}) {
         for (const name of lease.runtimes) liveRuntimes.add(name);
       } else staleLeases.push(file);
     }
-    for (const [directory, current] of generations) await removeUnused(path.join(directory, 'generations'), new Set(current ? [current] : []), generationName);
-    await removeUnused(path.join(cache, 'payloads'), livePayloads, name => digestName(name) || /^[a-f0-9]{64}\.corrupt-[a-f0-9-]{36}$/.test(name));
-    await removeUnused(path.join(cache, 'runtimes'), liveRuntimes, runtimeName);
-    await removeUnused(path.join(cache, 'staging'), new Set());
+    for (const [directory, current] of generations) {
+      const generationDir = path.join(directory, 'generations');
+      for (const entry of await entries(generationDir)) {
+        if (!entry.isFile() || !generationName(entry.name) || entry.name === current) continue;
+        // A legacy image can publish a generation without taking our cache
+        // lock. Preserve its generations, including ones racing this scan.
+        let generation;
+        try { generation = await readJSON(path.join(generationDir, entry.name)); } catch { continue; }
+        if (generation?.gc_managed === 1 && generation.profile_key === path.basename(directory)) await fs.rm(path.join(generationDir, entry.name), { force: true });
+      }
+    }
+    // Legacy images had no session leases or shared cache lock. Only artifacts
+    // explicitly created by this GC-aware image can be collected safely.
+    for (const entry of await entries(path.join(cache, 'payloads'))) {
+      const directory = path.join(cache, 'payloads', entry.name);
+      if (digestName(entry.name) && !livePayloads.has(entry.name) && await managed(path.join(cache, 'managed', 'payloads', entry.name))) {
+        await fs.rm(directory, { recursive: true, force: true });
+        await fs.rm(path.join(cache, 'managed', 'payloads', entry.name), { force: true });
+      } else if (/^[a-f0-9]{64}\.corrupt-[a-f0-9-]{36}$/.test(entry.name) && entry.isDirectory() && await managed(path.join(directory, GC_MARKER))) {
+        await fs.rm(directory, { recursive: true, force: true });
+      }
+    }
+    for (const entry of await entries(path.join(cache, 'managed', 'payloads'))) {
+      if (digestName(entry.name) && !(await exists(path.join(cache, 'payloads', entry.name)))) await fs.rm(path.join(cache, 'managed', 'payloads', entry.name), { force: true });
+    }
+    for (const entry of await entries(path.join(cache, 'runtimes'))) {
+      if (entry.isDirectory() && runtimeName(entry.name) && !liveRuntimes.has(entry.name) && await managed(path.join(cache, 'runtimes', entry.name, GC_MARKER))) {
+        await fs.rm(path.join(cache, 'runtimes', entry.name), { recursive: true, force: true });
+      }
+    }
+    for (const entry of await entries(path.join(cache, 'staging'))) {
+      if (entry.isDirectory() && stagingName(entry.name) && await managed(path.join(cache, 'staging', entry.name, GC_MARKER))) {
+        await fs.rm(path.join(cache, 'staging', entry.name), { recursive: true, force: true });
+      }
+    }
     for (const file of staleLeases) await fs.rm(file, { force: true });
   });
 }
@@ -580,6 +628,7 @@ async function prepareRuntimes(componentDir, cache, deps, allocations) {
     allocations.add(directory);
     try {
       const command = await deps.provisionNpm(pkg.spec, pkg.name, directory);
+      await fs.writeFile(path.join(directory, GC_MARKER), GC_MARKER_VALUE, { flag: 'wx', mode: 0o600 });
       const files = await inventory(directory, { links: true });
       runtimes[server] = { directory, command, skip: pkg.skip, digest: hash(stable(files)), inventory: files };
     } catch (e) { await fs.rm(directory, { recursive: true, force: true }); throw e; }
@@ -1043,6 +1092,7 @@ export async function prepare(options, injected = {}) {
     const runtimeAllocations = new Set();
     let committed = false;
     try {
+      await fs.writeFile(path.join(staging, GC_MARKER), GC_MARKER_VALUE, { flag: 'wx', mode: 0o600 });
       await verifyBaseline(options.baseline);
       const pointer = await readJSON(path.join(profileDir, 'current.json'), null);
       let previous = { version: 1, profile_key: manifest.profile_key, records: {} };
@@ -1121,18 +1171,23 @@ export async function prepare(options, injected = {}) {
           if (hash(stable(await inventory(destination, { links: true }))) !== digest) {
             // Explicit repair never mutates an existing reader's inode tree.
             if (action !== 'update') fail('shared artifact corrupt; explicit update required');
-            await fs.rename(destination, `${destination}.corrupt-${randomUUID()}`);
+            const corrupt = `${destination}.corrupt-${randomUUID()}`;
+            await fs.rename(destination, corrupt);
+            await fs.writeFile(path.join(corrupt, GC_MARKER), GC_MARKER_VALUE, { flag: 'wx', mode: 0o600 });
             await fs.rename(directory, destination);
+            await markPayload(options.cache, digest);
           }
         } else {
-          try { await fs.rename(directory, destination); } catch (e) {
+          let published = false;
+          try { await fs.rename(directory, destination); published = true; } catch (e) {
             if (!['EEXIST', 'ENOTEMPTY'].includes(e.code) || hash(stable(await inventory(destination, { links: true }))) !== digest) throw e;
           }
+          if (published) await markPayload(options.cache, digest);
         }
       }
       if (stable(records) !== stable(previous.records)) {
         const generation = randomUUID();
-        await atomicJSON(path.join(profileDir, 'generations', `${generation}.json`), { version: 1, profile_key: manifest.profile_key, records });
+        await atomicJSON(path.join(profileDir, 'generations', `${generation}.json`), { version: 1, profile_key: manifest.profile_key, gc_managed: 1, records });
         await atomicJSON(path.join(profileDir, 'current.json'), { generation });
       }
       committed = true;
@@ -1142,7 +1197,13 @@ export async function prepare(options, injected = {}) {
       await fs.rm(staging, { recursive: true, force: true });
     }
   }));
-  if (action === 'update') await collectCache(options.cache, { lockCache: deps.lockCache, leaseBusy: deps.leaseBusy ?? leaseIsBusy });
+  if (action === 'update') {
+    if (deps.env.AIRUN_CACHE_GC_SKIP === '1') console.error('[airun] warning: profile update published; component cache GC deferred while a legacy container may be active');
+    else {
+      try { await collectCache(options.cache, { lockCache: deps.lockCache, leaseBusy: deps.leaseBusy ?? leaseIsBusy }); }
+      catch (error) { console.error(`[airun] warning: profile update published; component cache GC deferred: ${error.message}`); }
+    }
+  }
   return result;
 }
 

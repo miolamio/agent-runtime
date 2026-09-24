@@ -72,7 +72,7 @@ async function fixture(t) {
       await previous;
       try { return await action(); } finally { release.resolve(); }
     },
-    lockCache: async (_cache, _mode, action) => action(),
+    lockCache: async (_cache, _mode, action) => deps.lock('fixture-cache', action),
     catalog: async () => {
       calls.catalog++;
       return { commit: 'a'.repeat(40), tree: Object.entries(source).map(([p, bytes]) => ({ path: p, type: 'blob', mode: '100644', sha: gitSha(bytes), size: bytes.length })) };
@@ -170,6 +170,7 @@ test('update collects removed payloads and npm runtime, retaining current genera
   const runtime = Object.values(first.records['mcps:integration/npm'].runtimes)[0].directory;
   const corrupt = path.join(f.root, 'cache/payloads', `${removed[0]}.corrupt-${randomUUID()}`);
   await fs.mkdir(corrupt);
+  await fs.writeFile(path.join(corrupt, '.airun-gc-managed'), '1\n');
   const current = await prepare(f.options(manifest({ agents: ['development-tools/code-reviewer'] }), 'update'), f.deps);
   assert.deepEqual(Object.keys(current.records), ['agents:development-tools/code-reviewer']);
   for (const digest of removed) await assert.rejects(fs.stat(path.join(f.root, 'cache/payloads', digest)), { code: 'ENOENT' });
@@ -178,6 +179,50 @@ test('update collects removed payloads and npm runtime, retaining current genera
   assert.equal(await fs.readFile(path.join(f.root, 'cache/payloads', current.records['agents:development-tools/code-reviewer'].digest, '.claude/agents/code-reviewer.md'), 'utf8'), agent('code-reviewer'));
   assert.equal(await fs.readFile(path.join(old.config, 'skills/helper/references/data.txt'), 'utf8'), 'reference v1\n');
   assert.equal((await fs.readdir(path.join(f.root, 'cache/profiles/reviewer/generations'))).length, 1);
+});
+
+test('GC preserves legacy artifacts and unrelated staging entries during migration', async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.root, 'cache');
+  const first = await prepare(f.options(manifest({ skills: ['development/helper'] })), f.deps);
+  const managedDigest = first.records['skills:development/helper'].digest;
+  const legacyDigest = 'a'.repeat(64);
+  await put(path.join(cache, 'payloads', legacyDigest), 'legacy.txt', 'old-image payload');
+  await put(path.join(cache, 'runtimes/npm-legacy'), 'bin.js', 'old-image runtime');
+  await put(path.join(cache, 'staging/reviewer-ABC123'), 'partial', 'old-image staging');
+  await put(path.join(cache, 'staging/reviewer-DEF456'), '.airun-gc-managed', '1\n');
+  await put(path.join(cache, 'staging/notes'), 'keep', 'unrelated');
+  await put(path.join(cache, 'staging/reviewer-XYZ789'), 'partial', 'not managed');
+  await fs.writeFile(path.join(cache, 'staging', 'unrelated-file'), 'keep');
+  const legacyGeneration = `${randomUUID()}.json`;
+  await json(path.join(cache, 'profiles/reviewer/generations'), legacyGeneration, { version: 1, profile_key: 'reviewer', records: {} });
+  await prepare(f.options(manifest(), 'update'), f.deps);
+  await assert.rejects(fs.stat(path.join(cache, 'payloads', managedDigest)), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(path.join(cache, 'staging/reviewer-DEF456')), { code: 'ENOENT' });
+  for (const file of [path.join(cache, 'payloads', legacyDigest, 'legacy.txt'), path.join(cache, 'runtimes/npm-legacy/bin.js'), path.join(cache, 'staging/reviewer-ABC123/partial'), path.join(cache, 'staging/reviewer-XYZ789/partial'), path.join(cache, 'staging/notes/keep'), path.join(cache, 'staging/unrelated-file'), path.join(cache, 'profiles/reviewer/generations', legacyGeneration)]) {
+    assert.equal((await fs.stat(file)).isFile(), true, file);
+  }
+});
+
+test('published update succeeds and warns when GC fails or a legacy container is active', async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.root, 'cache');
+  const selected = manifest({ skills: ['development/helper'] });
+  const first = await prepare(f.options(selected), f.deps);
+  const digest = first.records['skills:development/helper'].digest;
+  const pointer = path.join(cache, 'profiles/reviewer/current.json');
+  const oldPointer = await fs.readFile(pointer, 'utf8');
+  const warnings = [];
+  t.mock.method(console, 'error', message => warnings.push(message));
+  await put(cache, 'profiles/other/current.json', '{invalid');
+  const updated = await prepare(f.options(manifest(), 'update'), f.deps);
+  assert.deepEqual(updated.records, {});
+  assert.notEqual(await fs.readFile(pointer, 'utf8'), oldPointer);
+  assert.equal((await fs.stat(path.join(cache, 'payloads', digest))).isDirectory(), true);
+  assert(warnings.some(message => /profile update published; component cache GC deferred:/.test(message)));
+  warnings.length = 0;
+  await prepare(f.options(selected, 'update'), { ...f.deps, env: { ...f.deps.env, AIRUN_CACHE_GC_SKIP: '1' } });
+  assert(warnings.some(message => /profile update published; component cache GC deferred while a legacy container/.test(message)));
 });
 
 test('GC preserves payloads referenced by another profile and active-session runtime leases', async t => {
@@ -218,6 +263,18 @@ test('GC rejects redirected cache roots without deleting external files', async 
   await fs.symlink(outside, path.join(cache, 'payloads'));
   await assert.rejects(collectCache(cache, { lockCache: f.deps.lockCache }), /unsafe cache directory/);
   assert.equal(await fs.readFile(path.join(outside, 'preserve'), 'utf8'), 'untouched');
+});
+
+test('payload marker publication rejects a redirected managed directory', async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.root, 'cache');
+  const outside = path.join(f.root, 'outside');
+  await fs.mkdir(outside);
+  await fs.mkdir(cache);
+  await fs.symlink(outside, path.join(cache, 'managed'));
+  await assert.rejects(prepare(f.options(manifest({ skills: ['development/helper'] })), f.deps), /unsafe managed cache directory/);
+  assert.deepEqual(await fs.readdir(outside), []);
+  await assert.rejects(fs.stat(path.join(cache, 'profiles/reviewer/current.json')), { code: 'ENOENT' });
 });
 
 test('corrupt retained artifacts fail without a fetch and explicit update repairs them', async t => {

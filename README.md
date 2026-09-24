@@ -753,6 +753,13 @@ The collector keeps the current generation of every profile and runtimes leased
 by running sessions. `airun profile gc NAME` collects the shared cache on demand.
 Re-adding a removed reference resolves it again. Missing or corrupt retained
 artifacts require the explicit update command.
+During upgrades, GC preserves artifacts and generations created by older images.
+It also defers collection while a running container using the cache has no GC
+support label. Once those containers exit, `airun profile gc NAME` collects
+artifacts created by the current image; legacy bytes remain available for
+manual inspection or a future explicit migration. The host check covers legacy
+containers running when update or GC begins; starting an old image directly
+after that check is outside its atomic protection.
 
 Session history stays in the existing `airun-state-NAME` volume, separate from
 active configuration and artifacts. `--no-state` disables session persistence,
