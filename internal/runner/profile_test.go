@@ -143,3 +143,46 @@ func assertNoProfileTemporaryFiles(t *testing.T, home string) {
 		t.Fatalf("profile temporary files remain: %v (%v)", files, err)
 	}
 }
+
+func TestCleanProfileMountsSharedCacheAndOnlyExistingState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+if [ "$1" = image ]; then printf '1\n'; exit 0; fi
+if [ "$1" = volume ]; then
+  if [ "${TEST_STATE_EXISTS:-}" = 1 ]; then exit 0; fi
+  printf 'Error: No such volume\n' >&2
+  exit 1
+fi
+printf '%s\n' "$@" > "$HOME/docker-clean-args"
+`
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, exists := range []string{"", "1"} {
+		t.Setenv("TEST_STATE_EXISTS", exists)
+		if err := CleanProfile("reviewer"); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(filepath.Join(home, "docker-clean-args"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := string(data)
+		if !strings.Contains(args, componentVolumeName+":"+componentMountPath) || !strings.Contains(args, "profile-clean.mjs") {
+			t.Fatalf("cache maintenance not mounted: %s", args)
+		}
+		hasState := strings.Contains(args, stateVolumeForProfile("reviewer")+":"+profileStateMountPath)
+		if hasState != (exists == "1") {
+			t.Fatalf("unexpected state mount: %s", args)
+		}
+	}
+	if err := CleanProfile("../escape"); err == nil {
+		t.Fatal("unsafe profile selector was accepted")
+	}
+}

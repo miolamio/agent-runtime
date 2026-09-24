@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { prepare, inventory, renderMCP, checkRuntime, verifyCatalogOutput, expectedInventory, installerPackageVersion, verifyNativeSource, withProfileLock, validateManifest } from './component-adapter.mjs';
+import { prepare, collectCache, inventory, renderMCP, checkRuntime, verifyCatalogOutput, expectedInventory, installerPackageVersion, verifyNativeSource, withProfileLock, validateManifest } from './component-adapter.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitSha = bytes => createHash('sha1').update(`blob ${Buffer.byteLength(bytes)}\0`).update(bytes).digest('hex');
@@ -72,6 +72,7 @@ async function fixture(t) {
       await previous;
       try { return await action(); } finally { release.resolve(); }
     },
+    lockCache: async (_cache, _mode, action) => action(),
     catalog: async () => {
       calls.catalog++;
       return { commit: 'a'.repeat(40), tree: Object.entries(source).map(([p, bytes]) => ({ path: p, type: 'blob', mode: '100644', sha: gitSha(bytes), size: bytes.length })) };
@@ -142,21 +143,81 @@ test('commands preserve native-compatible unquoted argument hints without strict
   assert.deepEqual(await fs.readFile(path.join(o.config, 'commands/check.md')), bytes);
 });
 
-test('remove/re-add keeps receipts and selected bytes; immutable running views survive updates', async t => {
+test('remove/re-add drops obsolete receipts; immutable running views survive updates', async t => {
   const f = await fixture(t);
   const m = manifest({ skills: ['development/helper'] });
   const firstOptions = f.options(m);
   const first = await prepare(firstOptions, f.deps);
   const removedOptions = f.options(manifest());
   const removed = await prepare(removedOptions, f.deps);
-  assert.deepEqual(removed.records, first.records);
+  assert.deepEqual(removed.records, {});
   await assert.rejects(fs.stat(path.join(removedOptions.config, 'skills/helper')), { code: 'ENOENT' });
   f.source['cli-tool/components/skills/development/helper/references/data.txt'] = Buffer.from('reference v2\n');
   const restored = await prepare(f.options(m), f.deps);
-  assert.deepEqual(restored.records, first.records);
+  assert.notEqual(restored.records['skills:development/helper'].digest, first.records['skills:development/helper'].digest);
   const updated = await prepare(f.options(m, 'update'), f.deps);
   assert.notEqual(updated.records['skills:development/helper'].digest, first.records['skills:development/helper'].digest);
   assert.equal(await fs.readFile(path.join(firstOptions.config, 'skills/helper/references/data.txt'), 'utf8'), 'reference v1\n');
+});
+
+test('update collects removed payloads and npm runtime, retaining current generation and private running view', async t => {
+  const f = await fixture(t);
+  f.source['cli-tool/components/mcps/integration/npm.json'] = Buffer.from(JSON.stringify({ mcpServers: { npm: { command: 'npx', args: ['-y', '@fixture/one'] } } }));
+  const oldManifest = manifest({ agents: ['development-tools/code-reviewer'], skills: ['development/helper'], mcps: ['integration/npm'] });
+  const old = f.options(oldManifest);
+  const first = await prepare(old, f.deps);
+  const removed = ['skills:development/helper', 'mcps:integration/npm'].map(key => first.records[key].digest);
+  const runtime = Object.values(first.records['mcps:integration/npm'].runtimes)[0].directory;
+  const corrupt = path.join(f.root, 'cache/payloads', `${removed[0]}.corrupt-${randomUUID()}`);
+  await fs.mkdir(corrupt);
+  const current = await prepare(f.options(manifest({ agents: ['development-tools/code-reviewer'] }), 'update'), f.deps);
+  assert.deepEqual(Object.keys(current.records), ['agents:development-tools/code-reviewer']);
+  for (const digest of removed) await assert.rejects(fs.stat(path.join(f.root, 'cache/payloads', digest)), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(runtime), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(corrupt), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(f.root, 'cache/payloads', current.records['agents:development-tools/code-reviewer'].digest, '.claude/agents/code-reviewer.md'), 'utf8'), agent('code-reviewer'));
+  assert.equal(await fs.readFile(path.join(old.config, 'skills/helper/references/data.txt'), 'utf8'), 'reference v1\n');
+  assert.equal((await fs.readdir(path.join(f.root, 'cache/profiles/reviewer/generations'))).length, 1);
+});
+
+test('GC preserves payloads referenced by another profile and active-session runtime leases', async t => {
+  const f = await fixture(t);
+  f.source['cli-tool/components/mcps/integration/npm.json'] = Buffer.from(JSON.stringify({ mcpServers: { npm: { command: 'npx', args: ['-y', '@fixture/one'] } } }));
+  const selected = manifest({ skills: ['development/helper'], mcps: ['integration/npm'] });
+  const first = await prepare(f.options(selected), f.deps);
+  const other = await prepare(f.options(manifest({ skills: ['development/helper'] }, 'other')), f.deps);
+  const sharedDigest = first.records['skills:development/helper'].digest;
+  assert.equal(other.records['skills:development/helper'].digest, sharedDigest);
+  const runtime = Object.values(first.records['mcps:integration/npm'].runtimes)[0].directory;
+  const lease = path.join(f.root, 'cache/leases', `run-${randomUUID()}.json`);
+  await json(path.dirname(lease), path.basename(lease), { runtimes: [path.basename(runtime)] });
+  await prepare(f.options(manifest(), 'update'), { ...f.deps, leaseBusy: file => file === lease });
+  assert.equal(await fs.readFile(path.join(f.root, 'cache/payloads', sharedDigest, '.claude/skills/helper/SKILL.md'), 'utf8'), skill);
+  assert.equal((await fs.stat(runtime)).isDirectory(), true);
+  await collectCache(path.join(f.root, 'cache'), { lockCache: f.deps.lockCache, leaseBusy: () => false });
+  await assert.rejects(fs.stat(runtime), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(lease), { code: 'ENOENT' });
+  assert.equal((await fs.stat(path.join(f.root, 'cache/payloads', sharedDigest))).isDirectory(), true);
+});
+
+test('GC fails closed on an unreadable live generation', async t => {
+  const f = await fixture(t);
+  const first = await prepare(f.options(manifest({ skills: ['development/helper'] })), f.deps);
+  const digest = first.records['skills:development/helper'].digest;
+  await fs.writeFile(path.join(f.root, 'cache/profiles/reviewer/current.json'), '{broken');
+  await assert.rejects(collectCache(path.join(f.root, 'cache'), { lockCache: f.deps.lockCache }), /valid JSON/);
+  assert.equal((await fs.stat(path.join(f.root, 'cache/payloads', digest))).isDirectory(), true);
+});
+
+test('GC rejects redirected cache roots without deleting external files', async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.root, 'cache');
+  const outside = path.join(f.root, 'outside');
+  await put(outside, 'preserve', 'untouched');
+  await fs.mkdir(cache);
+  await fs.symlink(outside, path.join(cache, 'payloads'));
+  await assert.rejects(collectCache(cache, { lockCache: f.deps.lockCache }), /unsafe cache directory/);
+  assert.equal(await fs.readFile(path.join(outside, 'preserve'), 'utf8'), 'untouched');
 });
 
 test('corrupt retained artifacts fail without a fetch and explicit update repairs them', async t => {
@@ -547,11 +608,11 @@ test('complete equal baseline/catalog components deduplicate and retain every se
   const removed = f.options(manifest());
   await prepare(removed, f.deps);
   assert.equal(await fs.readFile(path.join(removed.config, 'skills/helper/references/data.txt'), 'utf8'), 'reference v1\n');
-  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert.notEqual(await fs.readFile(pointer, 'utf8'), generation);
   assert.deepEqual(await sourceSnapshot(f.baseline), before);
 });
 
-test('repository owns equal skills and commands while retained copies survive removal and repository deletion', async t => {
+test('repository owns equal skills and commands while removed receipts can be reinstalled', async t => {
   const f = await fixture(t);
   await copyCatalogSkill(f, f.baseline);
   const repository = path.join(f.deps.workspace, '.claude');
@@ -566,18 +627,18 @@ test('repository owns equal skills and commands while retained copies survive re
   const pointer = path.join(f.root, 'cache/profiles/reviewer/current.json');
   const generation = await fs.readFile(pointer, 'utf8');
   const removed = f.options(manifest());
-  assert.deepEqual((await prepare(removed, f.deps)).records, first.records);
+  assert.deepEqual((await prepare(removed, f.deps)).records, {});
   await assert.rejects(fs.lstat(path.join(removed.config, 'skills/helper')), { code: 'ENOENT' });
   const warm = f.options(m);
-  assert.deepEqual((await prepare(warm, { ...f.deps, catalog: () => assert.fail('warm fetch') })).records, first.records);
+  assert.deepEqual((await prepare(warm, f.deps)).records, first.records);
   assert.deepEqual(await sourceSnapshot(f.deps.workspace), before);
   // Test-owned deletion leaves the remaining independent managed sources active.
   await fs.rm(repository, { recursive: true });
   const restored = f.options(m);
   assert.deepEqual((await prepare(restored, f.deps)).records, first.records);
   assert.equal(await fs.readFile(path.join(restored.config, 'skills/helper/SKILL.md'), 'utf8'), skill);
-  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
-  assert.equal(f.calls.install, 2);
+  assert.notEqual(await fs.readFile(pointer, 'utf8'), generation);
+  assert.equal(f.calls.install, 4);
 });
 
 test('nested command invocation identities and executable flags participate in equivalence', async t => {
@@ -834,11 +895,11 @@ test('baseline skill aliases and nested incoming links retain omitted targets pr
   const generation = await fs.readFile(pointer, 'utf8');
   for (const selection of [m, manifest()]) {
     const next = f.options(selection);
-    assert.deepEqual((await prepare(next, { ...f.deps, catalog: () => assert.fail('warm fetch') })).records, first.records);
+    assert.deepEqual((await prepare(next, f.deps)).records, selection === m ? first.records : {});
     assert.equal(await fs.readFile(path.join(next.config, 'skills/alias/SKILL.md'), 'utf8'), skill);
     await assert.rejects(fs.lstat(path.join(next.config, 'skills/helper')), { code: 'ENOENT' });
   }
-  assert.equal(await fs.readFile(pointer, 'utf8'), generation);
+  assert.notEqual(await fs.readFile(pointer, 'utf8'), generation);
   assert.deepEqual(await sourceSnapshot(f.baseline), before);
   assert.deepEqual(await sourceSnapshot(repository), repositoryBefore);
 });

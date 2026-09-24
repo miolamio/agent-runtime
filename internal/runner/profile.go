@@ -116,3 +116,34 @@ func UpdateProfile(cfg *config.Config, name string) error {
 	fmt.Fprintf(os.Stderr, "[airun] updated profile=%s\n", name)
 	return nil
 }
+
+// CleanProfile collects unreferenced artifacts across every profile and removes
+// this profile's explicitly recoverable, failed session snapshots.
+func CleanProfile(name string) error {
+	if err := profile.ValidateKey(name); err != nil {
+		return err
+	}
+	if err := requireProfileImage(); err != nil {
+		return err
+	}
+	args := []string{"run", "--rm", "--name", "airun-profile-gc-" + history.NewRunID(),
+		"-e", "AIRUN_PROFILE_MAINTENANCE=1", "-e", "AIRUN_COMPONENT_CACHE=" + componentMountPath,
+		"-v", componentVolumeName + ":" + componentMountPath}
+	script := []string{"node", "/usr/local/lib/airun/profile-clean.mjs", componentMountPath}
+	stateVolume := stateVolumeForProfile(name)
+	if out, err := exec.Command("docker", "volume", "inspect", stateVolume).CombinedOutput(); err == nil {
+		args = append(args, "-e", "AIRUN_PROFILE_STATE="+profileStateMountPath,
+			"-v", stateVolume+":"+profileStateMountPath)
+		script = append(script, profileStateMountPath)
+	} else if !strings.Contains(strings.ToLower(string(out)), "no such volume") {
+		return fmt.Errorf("inspect profile state volume: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	args = append(args, ImageName)
+	args = append(args, script...)
+	cmd := exec.Command("docker", args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("collect profile cache: %w", err)
+	}
+	return nil
+}

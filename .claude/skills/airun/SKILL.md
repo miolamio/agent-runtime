@@ -45,6 +45,7 @@ airun rebuild --no-cache
 # Persistent state
 airun state info
 airun state reset
+airun profile gc <name>  # collect unused components and failed session snapshots
 
 # System
 airun --check

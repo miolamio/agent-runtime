@@ -106,7 +106,7 @@ RUN ssh-keyscan -t ed25519,ecdsa github.com gitlab.com bitbucket.org \
 # ── Default config ──
 COPY --chown=${USERNAME}:${USERNAME} settings.json /home/${USERNAME}/.claude-init/settings.json
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-COPY profile-start.mjs component-adapter.mjs /usr/local/lib/airun/
+COPY profile-start.mjs component-adapter.mjs profile-clean.mjs /usr/local/lib/airun/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /workspace

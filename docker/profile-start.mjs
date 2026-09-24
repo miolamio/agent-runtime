@@ -6,6 +6,7 @@ import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withCacheLock } from './component-adapter.mjs';
 
 export const HISTORY_PATHS = ['history.jsonl', 'projects', 'file-history', 'plans', 'tasks', 'todos', 'paste-cache', 'image-cache', 'uploads'];
 const ACTIVATION_ENV = new Set(['CLAUDE_CODE_ENABLE_FUNCTION_HOOKS', 'CLAUDE_CODE_PLUGIN_SEED_DIR']);
@@ -193,6 +194,58 @@ export function activationEnvironment(value) {
   return result;
 }
 
+export async function runtimeLease(cache, config) {
+  let runtimes = [];
+  try {
+    const data = JSON.parse(await fs.readFile(path.join(config, 'airun-runtime-lease.json'), 'utf8'));
+    if (!Array.isArray(data.runtimes) || data.runtimes.some(name => typeof name !== 'string' || !/^npm-[a-zA-Z0-9]+$/.test(name))) throw new Error('invalid runtime lease');
+    runtimes = data.runtimes;
+  } catch (error) { if (!missing(error)) throw error; }
+  if (!runtimes.length) return async () => {};
+  const directory = path.join(cache, 'leases');
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  const file = path.join(directory, `run-${randomUUID()}.json`);
+  await fs.writeFile(file, JSON.stringify({ runtimes }), { flag: 'wx', mode: 0o600 });
+  const holder = spawn('flock', ['--shared', file, process.execPath, '-e', 'process.stdout.write("locked\\n");process.stdin.resume()'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  holder.stderr.resume();
+  holder.stdin.on('error', () => {});
+  const closed = new Promise(resolve => holder.once('close', resolve));
+  try {
+    await new Promise((resolve, reject) => {
+      let output = '';
+      holder.once('error', () => reject(new Error('flock is required for component runtime leases')));
+      holder.once('close', code => reject(new Error(`runtime lease failed (${code})`)));
+      holder.stdout.on('data', chunk => { output += chunk; if (output.includes('locked\n')) resolve(); });
+    });
+  } catch (error) {
+    holder.stdin.end();
+    await closed;
+    await fs.rm(file, { force: true });
+    throw error;
+  }
+  return async () => { holder.stdin.end(); await closed; await fs.rm(file, { force: true }); };
+}
+
+export async function cleanRecovery(state) {
+  const root = path.join(state, '.airun-runs');
+  const rootInfo = await stat(root);
+  if (!rootInfo) return [];
+  if (!rootInfo.isDirectory()) throw new Error('private configuration directory is not a regular directory');
+  const removed = [];
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^config-[a-zA-Z0-9]+$/.test(entry.name)) continue;
+    const directory = path.join(root, entry.name);
+    const marker = await stat(path.join(directory, '.airun-recovery.json'));
+    if (!marker) continue;
+    if (!marker.isFile()) throw new Error(`unsafe recovery marker: ${directory}`);
+    const data = JSON.parse(await fs.readFile(path.join(directory, '.airun-recovery.json'), 'utf8'));
+    if (data.version !== 1) throw new Error(`invalid recovery marker: ${directory}`);
+    await fs.rm(directory, { recursive: true, force: true });
+    removed.push(directory);
+  }
+  return removed;
+}
+
 export async function startProfile(argv, options = {}) {
   const environment = options.env ?? process.env;
   const action = environment.AIRUN_PROFILE_ACTION || 'prepare';
@@ -230,6 +283,7 @@ export async function startProfile(argv, options = {}) {
   let timer;
   let sessionStarted = false;
   let preserveForRecovery = false;
+  let releaseRuntimeLease;
   try {
     const version = spawnSync('claude', ['--version'], { env: childEnv, encoding: 'utf8' });
     const installedVersion = version.stdout?.match(/\b\d+\.\d+\.\d+\b/)?.[0];
@@ -240,9 +294,14 @@ export async function startProfile(argv, options = {}) {
       lastOnboardingVersion: installedVersion, projects: {},
     }), { mode: 0o600 });
     original = await importHistory(state, config);
-    const prepared = await run(process.execPath, [options.adapterPath ?? '/usr/local/lib/airun/component-adapter.mjs',
+    const adapter = () => run(process.execPath, [options.adapterPath ?? '/usr/local/lib/airun/component-adapter.mjs',
       '--manifest', environment.AIRUN_PROFILE_MANIFEST, '--cache', environment.AIRUN_COMPONENT_CACHE,
       '--config', config, '--baseline', options.baselinePath ?? '/opt/airun/profile-baseline', '--action', action], childEnv);
+    const prepared = action === 'prepare' ? await (options.cacheLock ?? withCacheLock)(environment.AIRUN_COMPONENT_CACHE, 'shared', async () => {
+      const code = await adapter();
+      if (code === 0) releaseRuntimeLease = await (options.acquireRuntimeLease ?? runtimeLease)(environment.AIRUN_COMPONENT_CACHE, config);
+      return code;
+    }) : await adapter();
     if (prepared !== 0 || action === 'update') return prepared;
     const launch = JSON.parse(await fs.readFile(path.join(config, 'airun-launch.json'), 'utf8'));
     if (!Array.isArray(launch.args) || launch.args.some(arg => typeof arg !== 'string' || arg.includes('\0'))) throw new Error('invalid preparation launch arguments');
@@ -273,12 +332,15 @@ export async function startProfile(argv, options = {}) {
   } catch (error) {
     if (state && sessionStarted) {
       preserveForRecovery = true;
+      try { await fs.writeFile(path.join(config, '.airun-recovery.json'), JSON.stringify({ version: 1 }), { flag: 'wx', mode: 0o600 }); }
+      catch (markerError) { console.error(`[airun] warning: could not mark recoverable session: ${markerError.message}`); }
       throw new Error(`${error.message}; private session history preserved for recovery at ${config}`, { cause: error });
     }
     throw error;
   } finally {
     if (timer) clearInterval(timer);
     await persistence?.stop();
+    await releaseRuntimeLease?.();
     process.off('SIGINT', sigint);
     process.off('SIGTERM', sigterm);
     if (!preserveForRecovery) await fs.rm(config, { recursive: true, force: true });

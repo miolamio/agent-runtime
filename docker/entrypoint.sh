@@ -30,7 +30,7 @@ fi
 
 # Profile configuration is prepared only by the non-root adapter/supervisor.
 # Named volumes start root-owned; initialize mount roots, never host inputs.
-if [ -n "${AIRUN_PROFILE_MANIFEST:-}" ]; then
+if [ -n "${AIRUN_PROFILE_MANIFEST:-}" ] || [ -n "${AIRUN_PROFILE_MAINTENANCE:-}" ]; then
     for _runtime_dir in "${AIRUN_COMPONENT_CACHE:?component cache is required}" "${AIRUN_PROFILE_STATE:-}"; do
         if [ -n "$_runtime_dir" ]; then
             mkdir -p "$_runtime_dir"

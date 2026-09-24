@@ -410,8 +410,14 @@ func runShell(args []string) {
 }
 
 func runProfile(args []string) error {
-	if len(args) != 2 || args[0] != "update" {
-		return fmt.Errorf("usage: airun profile update NAME")
+	if len(args) != 2 {
+		return fmt.Errorf("usage: airun profile <update|gc> NAME")
+	}
+	if args[0] == "gc" {
+		return runner.CleanProfile(args[1])
+	}
+	if args[0] != "update" {
+		return fmt.Errorf("usage: airun profile <update|gc> NAME")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -462,6 +468,7 @@ Usage:
   airun shell                                 Interactive Claude Code session
   airun shell --profile dev                   Interactive with profile
   airun profile update reviewer              Explicitly update profile components
+  airun profile gc reviewer                  Collect unused components and failed session snapshots
   airun shell --model kimi-k2.5               Interactive with specific model
   airun shell --mount /path/to/project        Interactive with project mounted
   airun shell --provider mm                   Interactive with MiniMax

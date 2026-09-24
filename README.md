@@ -690,6 +690,7 @@ airun --profile dev "Refactor the authentication module"
 airun --profile text "Translate README.md to Russian"
 airun shell --profile reviewer
 airun profile update reviewer
+airun profile gc reviewer
 ```
 
 ### Catalog components
@@ -742,13 +743,16 @@ profile-owned contribution from subsequent launches; running sessions keep their
 configuration. Repository-owned Claude configuration remains a separate source.
 Preparation never installs into the host workspace.
 
-Resolved component bytes are retained per profile in `airun-components-cache`.
+Resolved component bytes are shared across profiles in `airun-components-cache`.
 Ordinary launches reuse them; first use or a newly added reference can download
 content. `airun profile update NAME` explicitly replaces the selected set in a
 preparation-only container. Failed updates preserve the previous set, and
-updating one profile does not refresh another. Removed references retain their
-resolution so re-adding them does not silently update their version. Missing or
-corrupt retained artifacts require the explicit update command.
+updating one profile does not refresh another. An update prunes removed receipts,
+old generations, unreferenced payloads, npm runtimes and corrupt replacements.
+The collector keeps the current generation of every profile and runtimes leased
+by running sessions. `airun profile gc NAME` collects the shared cache on demand.
+Re-adding a removed reference resolves it again. Missing or corrupt retained
+artifacts require the explicit update command.
 
 Session history stays in the existing `airun-state-NAME` volume, separate from
 active configuration and artifacts. `--no-state` disables session persistence,
@@ -757,6 +761,9 @@ default unprofiled state volume; it does not refresh profile components.
 History is merged periodically and at session exit. If a final save fails, the
 run exits with an error and reports a private recovery directory on the state
 volume; subsequent launches do not import that directory automatically.
+`airun profile gc NAME` also removes this profile's recovery directories after
+you have copied any needed files from the path printed on stderr. It leaves
+active and unmarked private session directories alone.
 
 The same profile applies in shell, headless, snapshot, bind, export and parallel
 flows. Parallel runs retain their existing no-state session policy. Browser

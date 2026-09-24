@@ -39,7 +39,7 @@ for usage in missing-action missing-name unknown-action extra-name; do
     ec=$?
     set -e
     assert_exit_code 1 "$ec" "$usage fails"
-    assert_contains "$out" 'airun profile update NAME' "$usage explains update syntax"
+    assert_contains "$out" 'airun profile <update|gc> NAME' "$usage explains update syntax"
 done
 [[ ! -s "$DOCKER_SHIM_LOG" ]] || die "invalid CLI input reached Docker"
 

@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { importHistory, mergeHistory, readHistoryFile, activationEnvironment, historyPersistence } from './profile-start.mjs';
+import { importHistory, mergeHistory, readHistoryFile, activationEnvironment, historyPersistence, cleanRecovery, runtimeLease } from './profile-start.mjs';
+import { collectCache } from './component-adapter.mjs';
 
 const flockAvailable = !spawnSync('flock', [], { stdio: 'ignore' }).error;
 const testWithFlock = (name, run) => test(name, { skip: flockAvailable ? false : 'flock is not available in PATH' }, run);
@@ -137,6 +138,51 @@ test('no-state does not read or publish session data', async t => {
   assert.deepEqual(await fs.readdir(root), ['active']);
 });
 
+test('explicit recovery cleanup removes only marked failed runs', async t => {
+  const { root, write } = await fixture(t);
+  const state = path.join(root, 'state');
+  await write('state/.airun-runs/config-failed/.airun-recovery.json', JSON.stringify({ version: 1 }));
+  await write('state/.airun-runs/config-failed/history.jsonl', '{"prompt":"recoverable"}\n');
+  await write('state/.airun-runs/config-live/history.jsonl', '{"prompt":"active"}\n');
+  await write('state/.airun-runs/unrelated', 'keep');
+  assert.deepEqual(await cleanRecovery(state), [path.join(state, '.airun-runs/config-failed')]);
+  await assert.rejects(fs.stat(path.join(state, '.airun-runs/config-failed')), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(state, '.airun-runs/config-live/history.jsonl'), 'utf8'), '{"prompt":"active"}\n');
+  assert.equal(await fs.readFile(path.join(state, '.airun-runs/unrelated'), 'utf8'), 'keep');
+});
+
+test('real Linux runtime lease protects an active MCP command through GC', { skip: process.platform !== 'linux' }, async t => {
+  const { root, write } = await fixture(t);
+  const cache = path.join(root, 'cache');
+  const config = path.join(root, 'config');
+  const runtime = path.join(cache, 'runtimes/npm-fixture');
+  await write('cache/runtimes/npm-fixture/bin.js', 'process.exit(0)');
+  await write('config/airun-runtime-lease.json', JSON.stringify({ runtimes: ['npm-fixture'] }));
+  const release = await runtimeLease(cache, config);
+  t.after(release);
+  await collectCache(cache);
+  assert.equal((await fs.stat(runtime)).isDirectory(), true);
+  await release();
+  await collectCache(cache);
+  await assert.rejects(fs.stat(runtime), { code: 'ENOENT' });
+});
+
+test('missing flock reports a runtime lease error and removes its unused lease file', async t => {
+  const { root, write } = await fixture(t);
+  await write('config/airun-runtime-lease.json', JSON.stringify({ runtimes: ['npm-fixture'] }));
+  const cache = path.join(root, 'cache');
+  const config = path.join(root, 'config');
+  const source = fileURLToPath(new URL('./profile-start.mjs', import.meta.url));
+  const program = `import { runtimeLease } from ${JSON.stringify(source)}; runtimeLease(${JSON.stringify(cache)}, ${JSON.stringify(config)}).catch(error => { console.error(error.message); process.exitCode = 1; });`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', program], { env: { ...process.env, PATH: path.join(root, 'empty-bin') }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  assert.equal(code, 1);
+  assert.match(stderr, /flock is required for component runtime leases/);
+  assert.deepEqual(await fs.readdir(path.join(cache, 'leases')), []);
+});
+
 test('activation environment cannot replace launcher, provider, or config values', () => {
   for (const key of ['PATH', 'HOME', 'ANTHROPIC_API_KEY', 'CLAUDE_CONFIG_DIR', 'AIRUN_COMPONENT_ENV_0001']) assert.throws(() => activationEnvironment({ [key]: 'bad' }), /unsupported/);
   assert.throws(() => activationEnvironment({ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS: '0' }), /invalid/);
@@ -190,7 +236,7 @@ fs.writeFileSync(path.join(config,'airun-launch.json'),JSON.stringify({args:['--
 `);
   const source = fileURLToPath(new URL('./profile-start.mjs', import.meta.url));
   const wrapper = await write('wrapper.mjs', `import {startProfile} from ${JSON.stringify(source)};
-startProfile(['claude','-p','literal $(do-not-run)'],{adapterPath:${JSON.stringify(adapterPath)}}).then(code=>{process.exitCode=code;}).catch(error=>{console.error(error.message);process.exitCode=1;});
+startProfile(['claude','-p','literal $(do-not-run)'],{adapterPath:${JSON.stringify(adapterPath)},cacheLock:async(_cache,_mode,action)=>action()}).then(code=>{process.exitCode=code;}).catch(error=>{console.error(error.message);process.exitCode=1;});
 `);
   const env = { ...process.env, HOME: root, PATH: path.join(root, 'bin') + ':' + process.env.PATH, AIRUN_PROFILE_MANIFEST: path.join(root, 'manifest.json'), AIRUN_COMPONENT_CACHE: path.join(root, 'cache'), AIRUN_PROFILE_STATE: path.join(root, 'state'), TEST_REPORT: path.join(root, 'report.json') };
   return { ...f, wrapper, env };
@@ -247,6 +293,7 @@ testWithFlock('failed final persistence keeps a private recovery directory on th
   assert.match(result.stderr, /preserved for recovery at /);
   assert.ok(result.stderr.includes(report.config));
   assert.equal(await fs.readFile(path.join(report.config, 'history.jsonl'), 'utf8'), '{"prompt":"new"}\n');
+  assert.equal(JSON.parse(await fs.readFile(path.join(report.config, '.airun-recovery.json'))).version, 1);
   // A new launch must not import this failed run's settings or partial state.
   await fs.rm(path.join(root, 'state/history.jsonl'), { recursive: true });
   const next = path.join(root, 'next');

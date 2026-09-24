@@ -65,9 +65,9 @@ export async function runCommand(command, args, options = {}) {
 
 // flock is held by a child waiting for this process's pipe. Process death closes
 // the pipe, so no stale PID files or lock-directory recovery is necessary.
-export async function withProfileLock(file, action) {
+async function withFileLock(file, mode, action) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const child = spawn('flock', ['--exclusive', file, 'sh', '-c', 'printf "locked\\n"; cat >/dev/null'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn('flock', [mode, file, 'sh', '-c', 'printf "locked\\n"; cat >/dev/null'], { stdio: ['pipe', 'pipe', 'pipe'] });
   child.stderr.resume();
   child.stdin.on('error', () => {});
   const closed = new Promise(resolve => child.once('close', resolve));
@@ -75,11 +75,89 @@ export async function withProfileLock(file, action) {
     await new Promise((resolve, reject) => {
       let text = '';
       child.once('error', () => reject(new Error('flock is required for component preparation')));
-      child.once('close', () => reject(new Error('profile lock could not be acquired')));
+      child.once('close', () => reject(new Error('component lock could not be acquired')));
       child.stdout.on('data', b => { text += b; if (text.includes('locked\n')) resolve(); });
     });
     return await action();
   } finally { child.stdin.end(); await closed; }
+}
+export const withProfileLock = (file, action) => withFileLock(file, '--exclusive', action);
+export const withCacheLock = (cache, mode, action) => withFileLock(path.join(cache, '.cache.lock'), mode === 'exclusive' ? '--exclusive' : '--shared', action);
+
+const digestName = name => /^[a-f0-9]{64}$/.test(name);
+const runtimeName = name => /^npm-[a-zA-Z0-9]+$/.test(name);
+const generationName = name => /^[a-f0-9-]{36}\.json$/.test(name);
+async function entries(directory) {
+  try {
+    if (!(await fs.lstat(directory)).isDirectory()) fail(`unsafe cache directory: ${directory}`);
+    return await fs.readdir(directory, { withFileTypes: true });
+  }
+  catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+}
+async function removeUnused(directory, keep, accept = () => true) {
+  for (const entry of await entries(directory)) {
+    if (!accept(entry.name) || keep.has(entry.name)) continue;
+    await fs.rm(path.join(directory, entry.name), { recursive: true, force: true });
+  }
+}
+
+// Called only under the exclusive cache lock. A malformed live pointer/lease
+// aborts collection: preserving bytes is safer than guessing what is unused.
+export async function collectCache(cache, injected = {}) {
+  const deps = { lockCache: withCacheLock, leaseBusy: leaseIsBusy, ...injected };
+  return deps.lockCache(cache, 'exclusive', async () => {
+    if (!(await fs.lstat(cache)).isDirectory()) fail('unsafe component cache root');
+    for (const name of ['profiles', 'payloads', 'runtimes', 'staging', 'leases']) await entries(path.join(cache, name));
+    const livePayloads = new Set();
+    const liveRuntimes = new Set();
+    const generations = new Map();
+    for (const entry of await entries(path.join(cache, 'profiles'))) {
+      if (!entry.isDirectory() || !PROFILE.test(entry.name)) fail('unsafe profile cache entry');
+      const profileDir = path.join(cache, 'profiles', entry.name);
+      const pointerInfo = await fs.lstat(path.join(profileDir, 'current.json')).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (pointerInfo && !pointerInfo.isFile()) fail(`unsafe current generation for ${entry.name}`);
+      await entries(path.join(profileDir, 'generations'));
+      const pointer = await readJSON(path.join(profileDir, 'current.json'), null);
+      if (pointer === null) { generations.set(profileDir, null); continue; }
+      if (!plain(pointer) || !generationName(`${pointer.generation}.json`)) fail(`invalid current generation for ${entry.name}`);
+      const currentName = `${pointer.generation}.json`;
+      const current = await readJSON(path.join(profileDir, 'generations', currentName));
+      if (current.version !== 1 || current.profile_key !== entry.name || !plain(current.records)) fail(`invalid current resolution for ${entry.name}`);
+      generations.set(profileDir, currentName);
+      for (const record of Object.values(current.records)) {
+        if (!plain(record) || !digestName(record.digest)) fail(`invalid retained payload for ${entry.name}`);
+        livePayloads.add(record.digest);
+        for (const runtime of Object.values(record.runtimes ?? {})) {
+          const directory = runtime?.directory;
+          if (typeof directory !== 'string' || path.dirname(directory) !== path.join(cache, 'runtimes') || !runtimeName(path.basename(directory))) fail(`invalid retained runtime for ${entry.name}`);
+          liveRuntimes.add(path.basename(directory));
+        }
+      }
+    }
+    const staleLeases = [];
+    for (const entry of await entries(path.join(cache, 'leases'))) {
+      if (!entry.isFile() || !/^run-[a-f0-9-]{36}\.json$/.test(entry.name)) fail('unsafe cache lease entry');
+      const file = path.join(cache, 'leases', entry.name);
+      if (await deps.leaseBusy(file)) {
+        const lease = await readJSON(file);
+        if (!Array.isArray(lease.runtimes) || lease.runtimes.some(name => typeof name !== 'string' || !runtimeName(name))) fail('invalid active cache lease');
+        for (const name of lease.runtimes) liveRuntimes.add(name);
+      } else staleLeases.push(file);
+    }
+    for (const [directory, current] of generations) await removeUnused(path.join(directory, 'generations'), new Set(current ? [current] : []), generationName);
+    await removeUnused(path.join(cache, 'payloads'), livePayloads, name => digestName(name) || /^[a-f0-9]{64}\.corrupt-[a-f0-9-]{36}$/.test(name));
+    await removeUnused(path.join(cache, 'runtimes'), liveRuntimes, runtimeName);
+    await removeUnused(path.join(cache, 'staging'), new Set());
+    for (const file of staleLeases) await fs.rm(file, { force: true });
+  });
+}
+
+async function leaseIsBusy(file) {
+  try { await runCommand('flock', ['--nonblock', '--exclusive', file, 'true'], { timeout: 10000 }); return false; }
+  catch (error) {
+    if (/failed \(1\)/.test(error.message)) return true;
+    throw error;
+  }
 }
 
 export function validateManifest(manifest) {
@@ -925,6 +1003,9 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
   }
   await writeJSON(path.join(target, 'settings.json'), settings);
   await writeJSON(path.join(target, 'airun-launch.json'), launch);
+  await writeJSON(path.join(target, 'airun-runtime-lease.json'), {
+    runtimes: [...new Set(Object.values(records).flatMap(record => Object.values(record.runtimes ?? {}).map(runtime => path.basename(runtime.directory))))]
+  });
   return launch;
 }
 function versionAtLeast(actual, required) {
@@ -942,7 +1023,7 @@ export async function prepare(options, injected = {}) {
   const action = options.action ?? 'prepare';
   if (!['prepare', 'update'].includes(action)) fail('unsupported profile preparation action');
   for (const key of ['cache', 'config', 'baseline']) if (!path.isAbsolute(options[key] ?? '')) fail(`${key} must be an absolute path`);
-  const deps = { run: runCommand, env: process.env, workspace: '/workspace', parseYAML: defaultYAML, catalog: fetchCatalog, lock: withProfileLock, ...injected, action };
+  const deps = { run: runCommand, env: process.env, workspace: '/workspace', parseYAML: defaultYAML, catalog: fetchCatalog, lock: withProfileLock, lockCache: withCacheLock, ...injected, action };
   deps.checkRuntime ??= (server, label) => checkRuntime(server, label, deps);
   deps.claudeVersion ??= () => deps.run('claude', ['--version']);
   deps.installCatalog ??= (type, id, directory) => installCatalog(type, id, directory, deps);
@@ -954,7 +1035,7 @@ export async function prepare(options, injected = {}) {
     return Buffer.from(await response.arrayBuffer());
   };
   const profileDir = path.join(options.cache, 'profiles', manifest.profile_key);
-  return deps.lock(path.join(profileDir, 'lock'), async () => {
+  const result = await deps.lockCache(options.cache, 'shared', () => deps.lock(path.join(profileDir, 'lock'), async () => {
     await fs.mkdir(path.join(options.cache, 'staging'), { recursive: true });
     await fs.mkdir(path.join(options.cache, 'payloads'), { recursive: true });
     await fs.mkdir(path.join(profileDir, 'generations'), { recursive: true });
@@ -970,10 +1051,14 @@ export async function prepare(options, injected = {}) {
         previous = await readJSON(path.join(profileDir, 'generations', `${pointer.generation}.json`));
         if (previous.version !== 1 || previous.profile_key !== manifest.profile_key || !plain(previous.records)) fail('invalid profile resolution generation');
       }
-      const records = structuredClone(previous.records);
+      const records = {};
       const bases = await baselineNative(options.baseline);
       const selected = TYPES.flatMap(type => (manifest.components[type] ?? []).map(ref => ({ type, id: ref.id })));
       selected.push(...[...new Set(manifest.native_plugins)].filter(id => !bases.has(id)).map(id => ({ type: 'native', id })));
+      for (const { type, id } of selected) {
+        const identity = `${type}:${id}`;
+        if (previous.records[identity]) records[identity] = structuredClone(previous.records[identity]);
+      }
       const pending = new Map();
       let catalog;
       for (const { type, id } of selected) {
@@ -1056,7 +1141,9 @@ export async function prepare(options, injected = {}) {
       if (!committed) for (const directory of runtimeAllocations) await fs.rm(directory, { recursive: true, force: true });
       await fs.rm(staging, { recursive: true, force: true });
     }
-  });
+  }));
+  if (action === 'update') await collectCache(options.cache, { lockCache: deps.lockCache, leaseBusy: deps.leaseBusy ?? leaseIsBusy });
+  return result;
 }
 
 async function main() {
@@ -1066,6 +1153,11 @@ async function main() {
     const flag = args[i];
     if (!['--manifest', '--cache', '--config', '--baseline', '--action'].includes(flag) || !args[i + 1]) fail('invalid component adapter arguments');
     options[flag.slice(2)] = args[i + 1];
+  }
+  if (options.action === 'gc') {
+    if (!path.isAbsolute(options.cache ?? '')) fail('cache must be an absolute path');
+    await collectCache(options.cache);
+    return;
   }
   await prepare(options);
 }
