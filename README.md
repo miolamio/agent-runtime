@@ -658,7 +658,7 @@ instance.
 ## Profiles
 
 Profiles bundle a provider, settings and selected Claude Code capabilities under
-`~/.airun/profiles/`. Use `--profile`; the old short `-p` profile alias is removed.
+`~/.airun/profiles/`. Use `--profile`; the old short `-p` alias remains available with a deprecation warning.
 Interactive/headless execution is a separate choice.
 
 ```yaml

@@ -300,6 +300,7 @@ func main() {
 	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("profile", "", "Profile name (reviewer, dev, text, default)")
+	fs.StringVar(profileName, "p", "", "Deprecated alias for --profile")
 	loop := fs.Bool("loop", false, "Enable autonomous loop mode")
 	maxLoops := fs.Int("max-loops", 5, "Maximum loops in loop mode")
 	name := fs.String("name", "", "Agent name")
@@ -313,6 +314,7 @@ func main() {
 		return nil
 	})
 	_ = fs.Parse(os.Args[1:]) // ExitOnError handles parse failures
+	warnDeprecatedProfileAlias(fs)
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -379,10 +381,12 @@ func runShell(args []string) {
 	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("profile", "", "Profile name (reviewer, dev, text, default)")
+	fs.StringVar(profileName, "p", "", "Deprecated alias for --profile")
 	mount := fs.String("mount", "", "Directory to mount into /workspace")
 	noState := fs.Bool("no-state", false, "Disable persistent state (ephemeral container)")
 	browser := fs.String("browser", "", "Browser display: vnc | cdp | both")
 	_ = fs.Parse(args) // ExitOnError handles parse failures
+	warnDeprecatedProfileAlias(fs)
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -414,6 +418,14 @@ func runProfile(args []string) error {
 		return fmt.Errorf("config: %w", err)
 	}
 	return runner.UpdateProfile(cfg, args[1])
+}
+
+func warnDeprecatedProfileAlias(fs *flag.FlagSet) {
+	fs.Visit(func(option *flag.Flag) {
+		if option.Name == "p" {
+			fmt.Fprintln(os.Stderr, "[airun] warning: -p is deprecated; use --profile")
+		}
+	})
 }
 
 func runCheck() {
@@ -484,6 +496,7 @@ Usage:
 
 Flags:
   --profile        Profile name (components, settings, provider)
+  -p               Deprecated alias for --profile
   --provider       Provider override: z/zai | m/mm/minimax | k/kimi | r/remote
   -m, --model      Model override (e.g. kimi-k2.5, glm-5.3, MiniMax-M2.7)
   --output         Export workspace to this directory after run
