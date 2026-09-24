@@ -430,6 +430,39 @@ test('baseline corruption and host-agent path/name collisions are rejected', asy
   await assert.rejects(prepare(f.options(manifest()), f.deps), /image baseline changed/);
 });
 
+test('host agents linked to files inside their directory remain selectable after profile preparation', async t => {
+  for (const kind of ['relative', 'absolute']) {
+    await t.test(kind, async t => {
+      const f = await fixture(t);
+      const hosts = path.join(f.root, 'hosts');
+      await put(hosts, 'source.txt', agent('host-reviewer'));
+      await fs.symlink(kind === 'relative' ? 'source.txt' : path.join(hosts, 'source.txt'), path.join(hosts, 'reviewer.md'));
+      const m = manifest(); m.settings.agent = 'host-reviewer';
+      const options = f.options(m);
+      const result = await prepare(options, { ...f.deps, env: { AIRUN_HOST_AGENTS: hosts } });
+      assert.deepEqual(result.launch.args, ['--agent', 'host-reviewer']);
+      assert.equal(await fs.realpath(path.join(options.config, 'agents/reviewer.md')), path.join(options.config, 'agents/source.txt'));
+      assert.equal(await fs.readlink(path.join(options.config, 'agents/reviewer.md')), 'source.txt');
+    });
+  }
+});
+
+test('host agent links outside their directory fail with the linked file name', async t => {
+  for (const target of ['outside', 'missing']) {
+    await t.test(target, async t => {
+      const f = await fixture(t);
+      const hosts = path.join(f.root, 'hosts');
+      await fs.mkdir(hosts);
+      if (target === 'outside') await put(f.root, 'outside.md', agent('external'));
+      await fs.symlink(path.join(f.root, `${target}.md`), path.join(hosts, 'escape.md'));
+      const options = f.options(manifest());
+      await assert.rejects(prepare(options, { ...f.deps, env: { AIRUN_HOST_AGENTS: hosts } }), error =>
+        error.message.includes('artifact symlink') && error.message.includes('escape.md'));
+      await assert.rejects(fs.stat(options.config), { code: 'ENOENT' });
+    });
+  }
+});
+
 test('repository agent shadowing and MCP name collisions fail without modifying workspace', async t => {
   const f = await fixture(t);
   const work = f.deps.workspace;

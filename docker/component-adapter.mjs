@@ -109,6 +109,7 @@ export function validateManifest(manifest) {
 
 export async function inventory(directory, { links = false, ignore = () => false } = {}) {
   const files = [];
+  const root = links ? await fs.realpath(directory) : undefined;
   async function walk(dir, prefix = '') {
     for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       const relative = safeRelative(prefix ? `${prefix}/${entry.name}` : entry.name);
@@ -117,8 +118,10 @@ export async function inventory(directory, { links = false, ignore = () => false
       const stat = await fs.lstat(full);
       if (stat.isSymbolicLink()) {
         if (!links) fail(`unsupported artifact entry: ${relative}`);
-        const resolved = await fs.realpath(full);
-        if (!resolved.startsWith(`${path.resolve(directory)}/`)) fail(`artifact symlink escapes its root: ${relative}`);
+        let resolved;
+        try { resolved = await fs.realpath(full); }
+        catch { fail(`artifact symlink target is unavailable: ${relative}`); }
+        if (resolved !== root && !resolved.startsWith(`${root}/`)) fail(`artifact symlink escapes its root: ${relative}`);
         files.push({ path: relative, symlink: await fs.readlink(full) });
       } else if (!stat.isDirectory() && !stat.isFile()) fail(`unsupported artifact entry: ${relative}`);
       else if (stat.isDirectory()) await walk(full, relative);
@@ -532,7 +535,7 @@ function merge(a, b) {
 async function scanAgents(root, parseYAML, identities, prefix = '', seen = new Set()) {
   if (!(await exists(root))) return;
   const directory = (await fs.stat(root)).isDirectory();
-  for (const file of directory ? await inventory(root) : [{ path: path.basename(root) }]) {
+  for (const file of directory ? await inventory(root, { links: true }) : [{ path: path.basename(root) }]) {
     if (!file.path.endsWith('.md')) continue;
     const full = directory ? path.join(root, file.path) : root;
     const real = await fs.realpath(full);
@@ -815,7 +818,21 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
   const mcpNames = new Set(repository.mcps);
   await copyBaselineComponents(baseline, target, baselineComponents, omitted);
   const hosts = deps.env.AIRUN_HOST_AGENTS;
-  if (hosts && await exists(hosts)) await copyFiles(hosts, path.join(target, 'agents'));
+  if (hosts && await exists(hosts)) {
+    const files = await inventory(hosts, { links: true });
+    const sourceRoot = await fs.realpath(hosts);
+    const agentTarget = path.join(target, 'agents');
+    // Absolute host links and links through other aliases must still resolve
+    // inside the copied agent tree after the bind mount disappears.
+    const portable = await Promise.all(files.map(async file => file.symlink === undefined ? file : {
+      ...file,
+      symlink: path.relative(
+        path.dirname(path.join(agentTarget, file.path)),
+        path.join(agentTarget, path.relative(sourceRoot, await fs.realpath(path.join(hosts, file.path))))
+      ) || '.'
+    }));
+    await copyFiles(hosts, agentTarget, portable);
+  }
   const seed = path.join(target, 'airun-plugin-seed');
   const finalSeed = path.join(finalConfig, 'airun-plugin-seed');
   const plugins = { refs: new Set(), names: new Set(), sources: {}, marketplaceRoots: {}, known: {}, catalogs: {}, installed: {}, enabled: {}, parseYAML: deps.parseYAML, agents: agentNames, mcpNames };
