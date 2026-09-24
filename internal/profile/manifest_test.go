@@ -147,6 +147,7 @@ func TestNormalizeValidatesProgrammaticProfiles(t *testing.T) {
 	}{
 		{"nil", nil},
 		{"missing key", &Profile{}},
+		{"invalid native plugin", &Profile{Key: "test", Plugins: []string{"example@"}}},
 		{"invalid component", &Profile{Key: "test", Components: Components{Agents: []ComponentRef{{ID: "../outside"}}}}},
 		{"invalid MCP", &Profile{Key: "test", Components: Components{MCPs: []MCPRef{{ID: ""}}}}},
 		{"invalid target", &Profile{Key: "test", Components: Components{MCPs: []MCPRef{{ID: "tools/item", Env: map[string]string{"BAD-NAME": "HOST"}}}}}},

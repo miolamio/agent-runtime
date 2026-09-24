@@ -12,9 +12,17 @@ import (
 )
 
 var (
-	keyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
-	envPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	keyPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	envPattern          = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	nativePluginPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
+
+func validateNativePlugin(value, field string) error {
+	if nativePluginPattern.MatchString(value) || value == "context7" || value == "superpowers" || value == "skill-creator" {
+		return nil
+	}
+	return fmt.Errorf("%s: expected name@marketplace or a base plugin name", field)
+}
 
 // ValidateKey accepts a portable file basename, never a path. The selector is
 // also used in Docker volume names and remains independent of YAML name.
@@ -141,6 +149,9 @@ func nativePlugins(node *yaml.Node) ([]string, error) {
 	for i, item := range node.Content {
 		value, err := scalarString(item, fmt.Sprintf("plugins[%d]", i))
 		if err != nil {
+			return nil, err
+		}
+		if err := validateNativePlugin(value, fmt.Sprintf("plugins[%d]", i)); err != nil {
 			return nil, err
 		}
 		plugins = append(plugins, value)

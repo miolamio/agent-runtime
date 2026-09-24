@@ -9,7 +9,7 @@ on_exit "rm -rf '$th'"
 install_docker_shim "$th"
 unset AIRUN_E2E_MISSING_TOKEN
 
-for scenario in unknown-field invalid-reference missing-credential unsafe-credential; do
+for scenario in unknown-field invalid-reference invalid-plugin missing-credential unsafe-credential; do
     case "$scenario" in
         unknown-field)
             source_yaml='components: {hooks: []}'
@@ -18,6 +18,10 @@ for scenario in unknown-field invalid-reference missing-credential unsafe-creden
         invalid-reference)
             source_yaml='components: {agents: [{id: tools/item, env: {TOKEN: HOST}}]}'
             field='components.agents[0].env'
+            ;;
+        invalid-plugin)
+            source_yaml="plugins: ['example@']"
+            field='plugins[0]'
             ;;
         missing-credential|unsafe-credential)
             source_yaml='components: {mcps: [{id: test/component, env: {TOKEN: AIRUN_E2E_MISSING_TOKEN}}]}'

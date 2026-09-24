@@ -44,6 +44,11 @@ func Normalize(p *Profile, lookup func(string) (string, bool)) (Manifest, []stri
 	if err := ValidateKey(p.Key); err != nil {
 		return Manifest{}, nil, err
 	}
+	for index, plugin := range p.Plugins {
+		if err := validateNativePlugin(plugin, fmt.Sprintf("plugins[%d]", index)); err != nil {
+			return Manifest{}, nil, err
+		}
+	}
 	manifest := Manifest{
 		Version:       ManifestVersion,
 		ProfileKey:    p.Key,
