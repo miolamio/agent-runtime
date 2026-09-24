@@ -1,0 +1,91 @@
+{
+  "date": "2026-09-24T05:43:33.252Z",
+  "image": "agent-runtime:latest",
+  "imageId": "sha256:e2ceda99e264f0759e14d5b84d4b3c67fba256a12ce8e4a4df8ff9afd3a832e5",
+  "imageSizeBytes": 2335953719,
+  "imageProfileStartSha256": "8d2eff87584112e6093709a53bc8d41d1fd44b53320c08f53da32081e73bdb68",
+  "imageAdapterSha256": "e0f51f0c4bc466e52cb4b8913a1237320239e328f51e3668dedf00d651939fed",
+  "sourceProfileStartSha256": "fdee0d39faa10441e54b1b4fbe75220d52f944805b34398880d5d94e63d8ab98",
+  "sourceAdapterSha256": "69d1b300969b0ac66b635641da401074844cf13b01a5add5513fe4f084b76858",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "method": {
+    "provider": "none",
+    "network": "none",
+    "profile": "empty components, baked baseline only",
+    "command": "/bin/true",
+    "reps": 5,
+    "largeMiB": 1024,
+    "jsonlPartMiB": 256
+  },
+  "startup": {
+    "coldNoState": 1257.3,
+    "warmNoState": {
+      "samplesMs": [
+        1212.4,
+        1086.4,
+        1179.7,
+        1118.1,
+        1038.1
+      ],
+      "medianMs": 1118.1,
+      "minMs": 1038.1,
+      "maxMs": 1212.4
+    },
+    "typicalState": {
+      "samplesMs": [
+        856.5,
+        1077.4,
+        1346.7,
+        1134.5,
+        1268.3
+      ],
+      "medianMs": 1134.5,
+      "minMs": 856.5,
+      "maxMs": 1346.7
+    },
+    "largeState": {
+      "samplesMs": [
+        6111,
+        5237.4
+      ],
+      "medianMs": 6111,
+      "minMs": 5237.4,
+      "maxMs": 6111
+    }
+  },
+  "stages": {
+    "typical": {
+      "versionMs": 5.8,
+      "importMs": 29.5,
+      "adapterMs": 856.4,
+      "maxRssMiB": 75
+    },
+    "large": {
+      "versionMs": 15.2,
+      "importMs": 2097.4,
+      "adapterMs": 2525.6,
+      "maxRssMiB": 588
+    }
+  },
+  "merge": {
+    "typical": {
+      "sizeMiB": 1,
+      "importMs": 22.9,
+      "unchangedMs": 16.3,
+      "changedMs": 25,
+      "unchangedRssMiB": 53,
+      "changedRssMiB": 59
+    },
+    "large": {
+      "sizeMiB": 1024,
+      "importMs": 4421.8,
+      "unchangedMs": 1287.8,
+      "changedMs": 15259.8,
+      "unchangedRssMiB": 568,
+      "changedRssMiB": 2382
+    }
+  }
+}
