@@ -294,6 +294,25 @@ test('MCP missing credentials, unsupported placeholders, duplicate servers and e
   await assert.rejects(prepare(f.options(m), f.deps), /duplicate MCP server/);
 });
 
+test('profile update validates MCP templates without host credentials while launch still requires them', async t => {
+  const f = await fixture(t);
+  const m = manifest({ mcps: [{ id: 'integration/one', env: { TOKEN: 'AIRUN_COMPONENT_ENV_0001' } }] });
+  const withoutSecrets = { ...f.deps, env: {} };
+  const updated = f.options(m, 'update');
+  await prepare(updated, withoutSecrets);
+  const config = JSON.parse(await fs.readFile(path.join(updated.config, 'airun-mcp.json')));
+  assert.equal(config.mcpServers.one.env.TOKEN, '${AIRUN_COMPONENT_ENV_0001}');
+  assert(!JSON.stringify(config).includes('synthetic-first'));
+  await assert.rejects(prepare(f.options(m), withoutSecrets), /missing environment binding TOKEN/);
+
+  const bound = { id: 'remote', env: { URL: 'AIRUN_COMPONENT_ENV_0001' } };
+  const dynamic = { mcpServers: { remote: { type: 'http', url: '${URL}', headers: { Authorization: 'Bearer ${URL}' } } } };
+  assert.equal((await renderMCP(dynamic, bound, {}, undefined, { action: 'update' })).remote.url, '${AIRUN_COMPONENT_ENV_0001}');
+  await assert.rejects(renderMCP(dynamic, bound, {}), /missing environment binding URL/);
+  await assert.rejects(renderMCP({ mcpServers: { remote: { type: 'http', url: 'file://${URL}' } } }, bound, {}, undefined, { action: 'update' }), /invalid server URL/);
+  await assert.rejects(renderMCP({ mcpServers: { remote: { type: 'http', url: '${UNBOUND}' } } }, bound, {}, undefined, { action: 'update' }), /unresolved required environment binding UNBOUND/);
+});
+
 test('npm MCP dependencies are retained, verified and launched without npx network resolution', async t => {
   const f = await fixture(t);
   f.source['cli-tool/components/mcps/integration/npm.json'] = Buffer.from(JSON.stringify({ mcpServers: { npm: { command: 'npx', args: ['-y', '@fixture/server', '--stdio'] } } }));

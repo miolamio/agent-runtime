@@ -8,7 +8,10 @@ th=$(mk_test_home)
 on_exit "rm -rf '$th'"
 install_docker_shim "$th"
 mk_test_profile "$th" reviewer 'settings: {agent: code-reviewer}
-components: {agents: [development-tools/code-reviewer]}'
+components:
+  agents: [development-tools/code-reviewer]
+  mcps: [{id: integration/example, env: {TOKEN: ART25_MISSING_MCP_TOKEN}}]'
+unset ART25_MISSING_MCP_TOKEN
 
 out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" profile update reviewer 2>&1)
 assert_contains "$out" 'updated profile=reviewer' 'successful update is reported'
@@ -28,12 +31,22 @@ capture = pathlib.Path(sys.argv[1])
 manifest = json.loads((capture / "profile.json").read_text())
 assert manifest["profile_key"] == "reviewer"
 assert manifest["settings"]["agent"] == "code-reviewer"
+assert manifest["components"]["mcps"] == [{"id": "integration/example", "env": {"TOKEN": "AIRUN_COMPONENT_ENV_0001"}}]
 env = dict(line.split("=", 1) for line in (capture / "env-file.env").read_text().splitlines())
 assert env == {
     "AIRUN_PROFILE_MANIFEST": "/run/airun/profile.json",
     "AIRUN_PROFILE_ACTION": "update",
 }, "update received unrelated environment or provider credentials"
 PY
+
+before=$(cat "$DOCKER_SHIM_LOG")
+set +e
+out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" --profile reviewer ping 2>&1)
+ec=$?
+set -e
+assert_exit_code 1 "$ec" 'ordinary launch still requires the MCP host secret'
+assert_contains "$out" 'required host environment variable is unset or empty' 'launch identifies missing MCP binding'
+[[ $(cat "$DOCKER_SHIM_LOG") == "$before" ]] || die "launch reached Docker before validating the MCP secret"
 
 set +e
 out=$(PATH="$th/bin:$PATH" HOME="$th" DOCKER_SHIM_RUN_EXIT_CODE=47 \

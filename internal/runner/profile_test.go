@@ -28,7 +28,7 @@ components:
 	if err != nil {
 		t.Fatal(err)
 	}
-	volumes, path, env, err := profileMounts(p)
+	volumes, path, env, err := profileMounts(p, "prepare")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,8 @@ func TestUpdateProfileRunsPreparationOnlyAndCleansTemporaryFiles(t *testing.T) {
 	if err := os.MkdirAll(profiles, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(profiles, "reviewer.yaml"), []byte("name: Reviewer\ncomponents:\n  agents: [development-tools/code-reviewer]\n"), 0600); err != nil {
+	t.Setenv("ART25_MISSING_MCP_TOKEN", "")
+	if err := os.WriteFile(filepath.Join(profiles, "reviewer.yaml"), []byte("name: Reviewer\ncomponents:\n  agents: [development-tools/code-reviewer]\n  mcps: [{id: integration/example, env: {TOKEN: ART25_MISSING_MCP_TOKEN}}]\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	bin := filepath.Join(home, "bin")
@@ -118,7 +119,7 @@ exit "${TEST_DOCKER_EXIT:-0}"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(env), "AIRUN_PROFILE_ACTION=update") || strings.Contains(string(env), "provider-secret") {
+	if !strings.Contains(string(env), "AIRUN_PROFILE_ACTION=update") || strings.Contains(string(env), "provider-secret") || strings.Contains(string(env), "AIRUN_COMPONENT_ENV_") {
 		t.Fatal("invalid preparation-only environment")
 	}
 	assertNoProfileTemporaryFiles(t, home)

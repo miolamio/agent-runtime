@@ -167,7 +167,7 @@ func Run(cfg *config.Config, opts RunOpts) error {
 		}
 		fmt.Fprintf(os.Stderr, "[airun] profile=%s (%s)\n", prof.Name, prof.Description)
 
-		extraVolumes, manifestTmp, extraEnv, err = profileMounts(prof)
+		extraVolumes, manifestTmp, extraEnv, err = profileMounts(prof, "prepare")
 		if err != nil {
 			return fmt.Errorf("profile mounts: %w", err)
 		}

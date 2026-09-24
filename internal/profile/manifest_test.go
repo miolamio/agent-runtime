@@ -104,6 +104,39 @@ components:
 	}
 }
 
+func TestNormalizeForUpdateKeepsAliasesWithoutHostSecrets(t *testing.T) {
+	p, err := Parse("test", []byte(`components:
+  mcps:
+    - id: integrations/first
+      env: {TOKEN: FIRST_HOST, API_KEY: API_HOST}
+    - id: integrations/second
+      env: {TOKEN: SECOND_HOST}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	update, err := NormalizeForUpdate(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepare, transport, err := Normalize(p, func(name string) (string, bool) { return "synthetic-" + name, true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(update, prepare) || len(transport) != 3 {
+		t.Fatal("update changed the manifest aliases or unexpectedly resolved credentials")
+	}
+	data, err := json.Marshal(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, excluded := range []string{"FIRST_HOST", "API_HOST", "SECOND_HOST", "synthetic-"} {
+		if strings.Contains(string(data), excluded) {
+			t.Fatal("update manifest contains a host variable name or value")
+		}
+	}
+}
+
 func TestNormalizeRejectsUnsafeValuesWithoutDisclosure(t *testing.T) {
 	cases := []struct {
 		name, value string
@@ -163,6 +196,9 @@ func TestNormalizeValidatesProgrammaticProfiles(t *testing.T) {
 			})
 			if err == nil {
 				t.Fatal("invalid profile accepted")
+			}
+			if _, err := NormalizeForUpdate(tc.profile); err == nil {
+				t.Fatal("invalid profile accepted for update")
 			}
 		})
 	}

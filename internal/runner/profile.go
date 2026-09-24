@@ -32,8 +32,16 @@ func requireProfileImage() error {
 // Native plugin references stay intact so the adapter can detect cross-source
 // conflicts; the host must not filter references by their bare plugin name.
 // The caller owns removal of the returned temporary file.
-func profileMounts(p *profile.Profile) (volumes []string, manifestPath string, env []string, err error) {
-	manifest, env, err := profile.Normalize(p, os.LookupEnv)
+func profileMounts(p *profile.Profile, action string) (volumes []string, manifestPath string, env []string, err error) {
+	var manifest profile.Manifest
+	switch action {
+	case "prepare":
+		manifest, env, err = profile.Normalize(p, os.LookupEnv)
+	case "update":
+		manifest, err = profile.NormalizeForUpdate(p)
+	default:
+		return nil, "", nil, fmt.Errorf("unsupported profile action: %s", action)
+	}
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -82,7 +90,7 @@ func UpdateProfile(cfg *config.Config, name string) error {
 	if err != nil {
 		return fmt.Errorf("profile: %w", err)
 	}
-	volumes, manifestPath, extraEnv, err := profileMounts(p)
+	volumes, manifestPath, extraEnv, err := profileMounts(p, "update")
 	if err != nil {
 		return fmt.Errorf("profile manifest: %w", err)
 	}

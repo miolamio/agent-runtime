@@ -732,7 +732,9 @@ Export `MY_REVIEW_GITHUB_TOKEN` before launching. Each integration receives its
 own bindings, even when target names overlap. Missing required values, unresolved
 placeholders, unsupported runtime dependencies and conflicting server names
 prevent startup. Credentials travel through a protected temporary environment
-file and are excluded from component manifests, receipts and logs.
+file and are excluded from component manifests, receipts and logs. `airun profile
+update NAME` validates MCP templates without reading these host credentials;
+the values are required when the profile launches.
 
 Every profile launch builds a separate active configuration from the current
 YAML, image baseline and optional host agents. Removing a component removes its

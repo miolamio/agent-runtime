@@ -38,6 +38,17 @@ type Manifest struct {
 // transport entries separately for the protected Docker environment file. It
 // never changes the source profile and returns no partial result on failure.
 func Normalize(p *Profile, lookup func(string) (string, bool)) (Manifest, []string, error) {
+	return normalize(p, lookup, true)
+}
+
+// NormalizeForUpdate validates profile bindings and keeps their transport
+// aliases stable without reading host credentials. An update never runs MCPs.
+func NormalizeForUpdate(p *Profile) (Manifest, error) {
+	manifest, _, err := normalize(p, nil, false)
+	return manifest, err
+}
+
+func normalize(p *Profile, lookup func(string) (string, bool), requireValues bool) (Manifest, []string, error) {
 	if p == nil {
 		return Manifest{}, nil, fmt.Errorf("profile: required")
 	}
@@ -87,6 +98,7 @@ func Normalize(p *Profile, lookup func(string) (string, bool)) (Manifest, []stri
 		}
 	}
 	var transport []string
+	aliasIndex := 0
 	for index, source := range p.Components.MCPs {
 		path := fmt.Sprintf("components.mcps[%d]", index)
 		if err := validateID(source.ID, path+".id"); err != nil {
@@ -110,19 +122,22 @@ func Normalize(p *Profile, lookup func(string) (string, bool)) (Manifest, []stri
 			if err := validateVariable(host, bindingPath, "host"); err != nil {
 				return Manifest{}, nil, err
 			}
-			if lookup == nil {
-				return Manifest{}, nil, fmt.Errorf("%s: host environment lookup is required", bindingPath)
-			}
-			value, ok := lookup(host)
-			if !ok || value == "" {
-				return Manifest{}, nil, fmt.Errorf("%s: required host environment variable is unset or empty", bindingPath)
-			}
-			if strings.ContainsAny(value, "\r\n\x00") {
-				return Manifest{}, nil, fmt.Errorf("%s: host value cannot contain CR, LF or NUL", bindingPath)
-			}
-			alias := fmt.Sprintf("%s%04d", componentEnvPrefix, len(transport)+1)
+			aliasIndex++
+			alias := fmt.Sprintf("%s%04d", componentEnvPrefix, aliasIndex)
 			ref.Env[target] = alias
-			transport = append(transport, alias+"="+value)
+			if requireValues {
+				if lookup == nil {
+					return Manifest{}, nil, fmt.Errorf("%s: host environment lookup is required", bindingPath)
+				}
+				value, ok := lookup(host)
+				if !ok || value == "" {
+					return Manifest{}, nil, fmt.Errorf("%s: required host environment variable is unset or empty", bindingPath)
+				}
+				if strings.ContainsAny(value, "\r\n\x00") {
+					return Manifest{}, nil, fmt.Errorf("%s: host value cannot contain CR, LF or NUL", bindingPath)
+				}
+				transport = append(transport, alias+"="+value)
+			}
 		}
 		manifest.Components.MCPs = append(manifest.Components.MCPs, ref)
 	}

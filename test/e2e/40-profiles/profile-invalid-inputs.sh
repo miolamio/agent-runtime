@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Schema errors and missing/unsafe MCP values fail before any Docker operation.
+# Schema errors fail for every action; missing/unsafe MCP values fail for launches.
 source "${E2E_LIB}/harness.sh"
 source "${E2E_LIB}/env.sh"
 source "${E2E_LIB}/home.sh"
@@ -32,7 +32,11 @@ for scenario in unknown-field invalid-reference invalid-plugin missing-credentia
     if [[ "$scenario" == unsafe-credential ]]; then
         export AIRUN_E2E_MISSING_TOKEN=$'synthetic-unsafe-canary\nANTHROPIC_AUTH_TOKEN=injected'
     fi
-    for mode in normal shell update; do
+    modes=(normal shell update)
+    if [[ "$scenario" == missing-credential || "$scenario" == unsafe-credential ]]; then
+        modes=(normal shell)
+    fi
+    for mode in "${modes[@]}"; do
         case "$mode" in
             normal) args=(--profile invalid ping) ;;
             shell) args=(shell --profile invalid) ;;

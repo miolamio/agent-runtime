@@ -369,17 +369,17 @@ async function installNative(ref, directory, baseline, deps) {
   await fs.rm(home, { recursive: true, force: true });
 }
 
-function expandTemplate(value, bindings, env, label) {
-  if (Array.isArray(value)) return value.map(v => expandTemplate(v, bindings, env, label));
-  if (plain(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expandTemplate(v, bindings, env, label)]));
+function expandTemplate(value, bindings, env, label, requireValues) {
+  if (Array.isArray(value)) return value.map(v => expandTemplate(v, bindings, env, label, requireValues));
+  if (plain(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, expandTemplate(v, bindings, env, label, requireValues)]));
   if (typeof value !== 'string') return value;
   const replace = name => {
     const alias = bindings[name];
-    if (!alias || !ALIAS.test(alias) || !env[alias]) fail(`${label}: unresolved required environment binding ${name}`);
+    if (!alias || !ALIAS.test(alias) || (requireValues && !env[alias])) fail(`${label}: unresolved required environment binding ${name}`);
     return '${' + alias + '}';
   };
   let result = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (all, name, fallback) => {
-    if (ALIAS.test(name) && Object.values(bindings).includes(name) && env[name]) return all;
+    if (ALIAS.test(name) && Object.values(bindings).includes(name) && (!requireValues || env[name])) return all;
     if (bindings[name]) return replace(name);
     if (fallback !== undefined) return fallback;
     fail(`${label}: unresolved required environment binding ${name}`);
@@ -388,10 +388,11 @@ function expandTemplate(value, bindings, env, label) {
   if (/<[^>]+>|\$\{|\bYOUR_[A-Z][A-Z0-9_]*\b/.test(result.replace(/\$\{AIRUN_COMPONENT_ENV_[0-9]+\}/g, ''))) fail(`${label}: unsupported or unresolved placeholder`);
   return result;
 }
-export async function renderMCP(template, ref, env, checkRuntime = async () => {}) {
+export async function renderMCP(template, ref, env, checkRuntime = async () => {}, { action = 'prepare' } = {}) {
   const label = `mcps:${ref.id}`;
   const bindings = ref.env ?? {};
-  for (const [target, alias] of Object.entries(bindings)) if (!ENV_NAME.test(target) || !ALIAS.test(alias) || !env[alias]) fail(`${label}: missing environment binding ${target}`);
+  const requireValues = action !== 'update';
+  for (const [target, alias] of Object.entries(bindings)) if (!ENV_NAME.test(target) || !ALIAS.test(alias) || (requireValues && !env[alias])) fail(`${label}: missing environment binding ${target}`);
   const projected = mcpProjection(template);
   const servers = {};
   for (const [name, original] of Object.entries(projected.mcpServers)) {
@@ -401,7 +402,7 @@ export async function renderMCP(template, ref, env, checkRuntime = async () => {
     server.env = { ...server.env };
     // Bind by target key even when the catalog uses a generic <YOUR_TOKEN> label.
     for (const [target, alias] of Object.entries(bindings)) server.env[target] = '${' + alias + '}';
-    const rendered = expandTemplate(server, bindings, env, label);
+    const rendered = expandTemplate(server, bindings, env, label, requireValues);
     if (Object.entries(rendered.env).some(([key, value]) => !ENV_NAME.test(key) || typeof value !== 'string')) fail(`${label}: invalid server environment`);
     if (rendered.headers !== undefined && (!plain(rendered.headers) || Object.values(rendered.headers).some(value => typeof value !== 'string'))) fail(`${label}: invalid server headers`);
     if (rendered.command !== undefined) {
@@ -411,9 +412,16 @@ export async function renderMCP(template, ref, env, checkRuntime = async () => {
       await checkRuntime(rendered, label);
     } else {
       if (!['http', 'sse', 'ws'].includes(rendered.type) || typeof rendered.url !== 'string' || !rendered.url.trim() || rendered.args !== undefined) fail(`${label}: unsupported server transport`);
+      const allowed = rendered.type === 'ws' ? ['ws:', 'wss:'] : ['http:', 'https:'];
+      const dynamic = !requireValues && /\$\{AIRUN_COMPONENT_ENV_[0-9]+\}/.test(rendered.url);
+      const candidate = dynamic ? rendered.url.replace(/\$\{AIRUN_COMPONENT_ENV_[0-9]+\}/g, '1') : resolveAliases(rendered.url, env);
       let url;
-      try { url = new URL(resolveAliases(rendered.url, env)); } catch { fail(`${label}: invalid server URL`); }
-      if (!(rendered.type === 'ws' ? ['ws:', 'wss:'] : ['http:', 'https:']).includes(url.protocol)) fail(`${label}: invalid server URL`);
+      try { url = new URL(candidate); } catch {
+        // A binding may supply the whole URL. Its final value is checked at
+        // launch, while update can still validate the remaining template.
+        if (!dynamic || !rendered.url.startsWith('${')) fail(`${label}: invalid server URL`);
+      }
+      if (url && !allowed.includes(url.protocol)) fail(`${label}: invalid server URL`);
     }
     servers[name] = rendered;
   }
@@ -860,7 +868,7 @@ async function activate(manifest, records, payloadDirectory, target, finalConfig
     const record = records[`${type}:${ref.id}`];
     const root = payloadDirectory(record);
     if (type === 'mcps') {
-      const rendered = await renderMCP(await readJSON(path.join(root, '.mcp.json')), ref, deps.env, deps.checkRuntime);
+      const rendered = await renderMCP(await readJSON(path.join(root, '.mcp.json')), ref, deps.env, deps.checkRuntime, { action: deps.action });
       for (const [name, server] of Object.entries(rendered)) {
         const runtime = record.runtimes?.[name];
         if (runtime) { server.command = runtime.command; server.args = (server.args ?? []).slice(runtime.skip); }
