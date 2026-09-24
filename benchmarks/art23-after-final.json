@@ -1,0 +1,111 @@
+{
+  "date": "2026-09-24T06:01:00.653Z",
+  "image": "agent-runtime:art23-after",
+  "imageId": "sha256:056685143d61a37e423bdc4de3465bc6beced7fc801026cbc9b3c3a5841ea89f",
+  "imageSizeBytes": 2335970165,
+  "imageProfileStartSha256": "bfaa02634a370647056543a261e997d26b4140af148de95e6477de46961baafe",
+  "imageAdapterSha256": "6d236c7acd8b95cdf6d962c24a2ffe9274b8f2e6a5a5e2fcaf9900b72de46884",
+  "sourceProfileStartSha256": "bfaa02634a370647056543a261e997d26b4140af148de95e6477de46961baafe",
+  "sourceAdapterSha256": "6d236c7acd8b95cdf6d962c24a2ffe9274b8f2e6a5a5e2fcaf9900b72de46884",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "method": {
+    "provider": "none",
+    "network": "none",
+    "profile": "empty components, baked baseline only",
+    "command": "/bin/true",
+    "reps": 3,
+    "largeMiB": 1024,
+    "jsonlPartMiB": 256
+  },
+  "startup": {
+    "coldNoState": 1845.2,
+    "warmNoState": {
+      "samplesMs": [
+        643.7,
+        598.3,
+        638.2
+      ],
+      "medianMs": 638.2,
+      "minMs": 598.3,
+      "maxMs": 643.7
+    },
+    "typicalState": {
+      "samplesMs": [
+        610.1,
+        600.8,
+        633.7
+      ],
+      "medianMs": 610.1,
+      "minMs": 600.8,
+      "maxMs": 633.7
+    },
+    "largeState": {
+      "samplesMs": [
+        4396.8,
+        3767.2
+      ],
+      "medianMs": 4396.8,
+      "minMs": 3767.2,
+      "maxMs": 4396.8
+    },
+    "pairedLargeStartup": {
+      "primaryImage": "agent-runtime:art23-after",
+      "comparisonImage": "agent-runtime:art23-before",
+      "primary": {
+        "samplesMs": [
+          5042.2,
+          6130.5,
+          3758.2
+        ],
+        "medianMs": 5042.2,
+        "minMs": 3758.2,
+        "maxMs": 6130.5
+      },
+      "comparison": {
+        "samplesMs": [
+          4353.4,
+          4664.4,
+          4476.3
+        ],
+        "medianMs": 4476.3,
+        "minMs": 4353.4,
+        "maxMs": 4664.4
+      }
+    }
+  },
+  "stages": {
+    "typical": {
+      "versionMs": 4.9,
+      "importMs": 22.3,
+      "adapterMs": 435.1,
+      "maxRssMiB": 71
+    },
+    "large": {
+      "versionMs": 10.3,
+      "importMs": 1881.8,
+      "adapterMs": 1321.9,
+      "maxRssMiB": 587
+    }
+  },
+  "merge": {
+    "typical": {
+      "sizeMiB": 1,
+      "importMs": 20.9,
+      "unchangedMs": 15,
+      "changedMs": 19.5,
+      "unchangedRssMiB": 52,
+      "changedRssMiB": 61
+    },
+    "large": {
+      "sizeMiB": 1024,
+      "importMs": 1899.8,
+      "unchangedMs": 48.3,
+      "changedMs": 9065.6,
+      "unchangedRssMiB": 566,
+      "changedRssMiB": 1489
+    }
+  }
+}

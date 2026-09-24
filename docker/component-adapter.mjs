@@ -659,6 +659,28 @@ async function verifyBaseline(baseline) {
   }
 }
 
+// The baked baseline is immutable for the life of this image. A successful
+// complete verification can be reused across launches with the same build ID
+// and receipt; fixture/alternate baseline paths still get checked every time.
+export async function verifyBaselineCached(baseline, cache, buildIDFile = '/etc/airun-build-id') {
+  let buildID;
+  try { buildID = (await fs.readFile(buildIDFile, 'utf8')).trim(); }
+  catch (error) { if (error.code === 'ENOENT') return verifyBaseline(baseline); throw error; }
+  if (!/^\d+$/.test(buildID)) return verifyBaseline(baseline);
+  const receipt = await fs.readFile(path.join(baseline, 'inventory.json'));
+  const key = hash(`${buildID}\0${baseline}\0${hash(receipt)}`);
+  const marker = path.join(cache, '.baseline-verified.json');
+  const info = await exists(marker) ? await fs.lstat(marker) : null;
+  if (info?.isFile()) {
+    try {
+      const verified = await readJSON(marker);
+      if (verified.version === 1 && verified.key === key) return;
+    } catch {}
+  }
+  await verifyBaseline(baseline);
+  await atomicJSON(marker, { version: 1, key });
+}
+
 function merge(a, b) {
   const result = structuredClone(a);
   for (const [k, v] of Object.entries(b)) {
@@ -1093,7 +1115,8 @@ export async function prepare(options, injected = {}) {
     let committed = false;
     try {
       await fs.writeFile(path.join(staging, GC_MARKER), GC_MARKER_VALUE, { flag: 'wx', mode: 0o600 });
-      await verifyBaseline(options.baseline);
+      if (options.baseline === '/opt/airun/profile-baseline') await verifyBaselineCached(options.baseline, options.cache);
+      else await verifyBaseline(options.baseline);
       const pointer = await readJSON(path.join(profileDir, 'current.json'), null);
       let previous = { version: 1, profile_key: manifest.profile_key, records: {} };
       if (pointer !== null) {

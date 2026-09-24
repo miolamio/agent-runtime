@@ -78,6 +78,29 @@ testWithFlock('two private snapshots merge concurrent appends and inode replacem
   assert.equal((await fs.readFile(path.join(state, 'history.jsonl'), 'utf8')).trim().split('\n').length, 3);
 });
 
+testWithFlock('appended JSONL records keep exact-byte deduplication, including an older duplicate', async t => {
+  const { root, write } = await fixture(t);
+  const old = '{"message":"старое"}\n';
+  const fresh = '{"message":"новое"}\n';
+  const state = path.join(root, 'state');
+  const active = path.join(root, 'active');
+  await write('state/projects/-workspace/session.jsonl', old);
+  await fs.mkdir(active);
+  const original = await importHistory(state, active);
+  assert.equal(original.get('projects/-workspace/session.jsonl').size, Buffer.byteLength(old));
+  await fs.appendFile(path.join(active, 'projects/-workspace/session.jsonl'), old + fresh + fresh);
+  await mergeHistory(state, active, original);
+  assert.equal(await fs.readFile(path.join(state, 'projects/-workspace/session.jsonl'), 'utf8'), old + fresh);
+
+  // A legacy retained file may itself contain duplicates. The general merge
+  // still canonicalizes it when a new append arrives.
+  await write('state/projects/-workspace/session.jsonl', old + old);
+  const second = await importHistory(state, active);
+  await fs.appendFile(path.join(active, 'projects/-workspace/session.jsonl'), fresh);
+  await mergeHistory(state, active, second);
+  assert.equal(await fs.readFile(path.join(state, 'projects/-workspace/session.jsonl'), 'utf8'), old + fresh);
+});
+
 testWithFlock('rejects symlinks rather than import or overwrite files outside session state', async t => {
   const { root, write } = await fixture(t);
   await write('outside', 'preserved');

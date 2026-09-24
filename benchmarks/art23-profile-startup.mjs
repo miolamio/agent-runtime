@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // ART-23 diagnostics against the already-built image. No provider call or image build.
-// Usage: node benchmarks/art23-profile-startup.mjs [--large-mib 1024] [--reps 5]
+// Usage: node benchmarks/art23-profile-startup.mjs [--image agent-runtime:latest]
+//        [--compare-image agent-runtime:before] [--output art23-results.json]
+//        [--large-mib 1024] [--reps 5]
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -9,10 +11,17 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
-const image = 'agent-runtime:latest';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const resultsPath = path.join(scriptDir, 'art23-results.json');
 const args = process.argv.slice(2);
+function stringOption(name, fallback) {
+  const index = args.indexOf(name);
+  return index < 0 ? fallback : args[index + 1];
+}
+const image = stringOption('--image', 'agent-runtime:latest');
+const compareImage = stringOption('--compare-image', null);
+const outputName = stringOption('--output', 'art23-results.json');
+if (!image || !outputName || path.basename(outputName) !== outputName) throw new Error('invalid image or output name');
+const resultsPath = path.join(scriptDir, outputName);
 function option(name, fallback) {
   const index = args.indexOf(name);
   return index < 0 ? fallback : Number(args[index + 1]);
@@ -160,14 +169,14 @@ async function diagnostic(mode, name, mib, state = true) {
     '--entrypoint', 'node', image, '--input-type=module', '-e', historyCode, mode]);
   return extract(result.stdout);
 }
-async function startup(stateVolume) {
+async function startup(stateVolume, selectedImage = image) {
   const argv = ['run', '--rm', '--network', 'none', '--label', 'org.miolamio.airun-benchmark=ART-23',
     '-v', manifestMount, '-v', cacheMount,
     '-e', 'AIRUN_PROFILE_MANIFEST=/run/airun/profile.json',
     '-e', 'AIRUN_COMPONENT_CACHE=/run/airun/components',
     '-e', 'AIRUN_WORKSPACE_MODE=bind'];
   if (stateVolume) argv.push('-v', `${stateVolume}:/run/airun/state`, '-e', 'AIRUN_PROFILE_STATE=/run/airun/state');
-  argv.push(image, '/bin/true');
+  argv.push(selectedImage, '/bin/true');
   return (await docker(argv, { ready: true })).readyMs;
 }
 
@@ -194,6 +203,18 @@ try {
   await diagnostic('generate', volumes.large, largeMiB);
   const largeStartup = [];
   for (let i = 0; i < Math.min(reps, 2); i++) largeStartup.push(await startup(volumes.large));
+  let pairedLargeStartup;
+  if (compareImage) {
+    // One shared state/cache removes fixture and order differences. Alternate
+    // run order because filesystem cache and Docker VM load fluctuate.
+    await startup(volumes.large, compareImage);
+    const paired = { primary: [], comparison: [] };
+    for (let i = 0; i < reps; i++) {
+      const order = i % 2 ? [['comparison', compareImage], ['primary', image]] : [['primary', image], ['comparison', compareImage]];
+      for (const [label, selectedImage] of order) paired[label].push(await startup(volumes.large, selectedImage));
+    }
+    pairedLargeStartup = { primaryImage: image, comparisonImage: compareImage, primary: stats(paired.primary), comparison: stats(paired.comparison) };
+  }
   const largeStages = await diagnostic('stages', volumes.large, largeMiB);
   const largeMerge = await diagnostic('merge', volumes.large, largeMiB);
   const report = {
@@ -202,7 +223,7 @@ try {
     sourceProfileStartSha256: hash(source), sourceAdapterSha256: hash(sourceAdapter),
     host: { platform: process.platform, arch: process.arch },
     method: { provider: 'none', network: 'none', profile: 'empty components, baked baseline only', command: '/bin/true', reps, largeMiB, jsonlPartMiB: 256 },
-    startup: { coldNoState: round(coldNoState), warmNoState: stats(warmNoState), typicalState: stats(typicalStartup), largeState: stats(largeStartup) },
+    startup: { coldNoState: round(coldNoState), warmNoState: stats(warmNoState), typicalState: stats(typicalStartup), largeState: stats(largeStartup), ...(pairedLargeStartup ? { pairedLargeStartup } : {}) },
     stages: { typical: Object.fromEntries(Object.entries(typicalStages).map(([key, value]) => [key, round(value)])), large: Object.fromEntries(Object.entries(largeStages).map(([key, value]) => [key, round(value)])) },
     merge: { typical: Object.fromEntries(Object.entries(typicalMerge).map(([key, value]) => [key, round(value)])), large: Object.fromEntries(Object.entries(largeMerge).map(([key, value]) => [key, round(value)])) },
   };

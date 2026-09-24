@@ -2,6 +2,7 @@
 // Per-container configuration and supervised, allowlisted session persistence.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,6 +39,15 @@ export function historyPersistence(snapshot, onError) {
 
 async function stat(file) {
   try { return await fs.lstat(file); } catch (error) { if (missing(error)) return null; throw error; }
+}
+
+async function snapshotStat(file) {
+  try { return await fs.lstat(file, { bigint: true }); }
+  catch (error) { if (missing(error)) return null; throw error; }
+}
+
+function fileStamp(info) {
+  return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(':');
 }
 
 // A native rewrite can briefly remove a path between enumeration and open.
@@ -88,6 +98,61 @@ async function atomicWrite(root, relative, data) {
   await fs.rename(temporary, target);
 }
 
+async function atomicAppend(target, data) {
+  const temporary = `${target}.airun-${randomUUID()}.tmp`;
+  try {
+    await fs.copyFile(target, temporary, fsConstants.COPYFILE_EXCL);
+    await fs.chmod(temporary, 0o600);
+    await fs.appendFile(temporary, data);
+    await fs.rename(temporary, target);
+  } finally {
+    await fs.rm(temporary, { force: true });
+  }
+}
+
+// Return null if the retained file already contains duplicates. The normal
+// merge must canonicalize those rather than preserve them in an append copy.
+function uniqueJSONLRecords(data) {
+  const records = new Set();
+  for (let start = 0; start < data.length;) {
+    const end = data.indexOf(10, start);
+    if (end < 0) return null;
+    if (end > start) {
+      // latin1 maps each byte to one code point; equality remains byte-exact.
+      const line = data.toString('latin1', start, end);
+      if (records.has(line)) return null;
+      records.add(line);
+    }
+    start = end + 1;
+  }
+  return records;
+}
+
+async function appendHistoryIfSafe(target, data, retained, original, current, saved) {
+  if (!original || !Number.isSafeInteger(original.size) || original.size < 0 ||
+      original.size > current.data.length || retained.length !== original.size ||
+      saved.data.length !== retained.length ||
+      (original.size && data[original.size - 1] !== 10) ||
+      digest(retained) !== original.hash || digest(data.subarray(0, original.size)) !== original.hash) return false;
+  const suffix = current.data.subarray(original.size);
+  // Large rewrites and massive append batches use the general merge path.
+  if (suffix.length > 1024 * 1024) return false;
+  const seen = uniqueJSONLRecords(retained);
+  if (!seen) return false;
+  const additions = [];
+  for (let start = 0; start < suffix.length;) {
+    const end = suffix.indexOf(10, start);
+    if (end < 0) return false;
+    if (end > start) {
+      const line = suffix.toString('latin1', start, end);
+      if (!seen.has(line)) { seen.add(line); additions.push(suffix.subarray(start, end + 1)); }
+    }
+    start = end + 1;
+  }
+  if (additions.length) await atomicAppend(target, Buffer.concat(additions));
+  return true;
+}
+
 // flock's child holds the lock until its stdin closes; process/container failure
 // releases the kernel lock without stale PID files or cross-container PID checks.
 export async function withHistoryLock(state, operation) {
@@ -123,7 +188,8 @@ export async function importHistory(state, config) {
       const data = await readHistoryFile(path.join(state, relative));
       if (data === null) continue;
       await atomicWrite(config, relative, data);
-      original.set(relative, digest(data));
+      const copied = await snapshotStat(path.join(config, relative));
+      original.set(relative, { hash: digest(data), size: data.length, stamp: fileStamp(copied) });
     }
   });
   return original;
@@ -137,10 +203,23 @@ export async function mergeHistory(state, config, original, { final = false } = 
   await withHistoryLock(state, async () => {
     const unfinished = [];
     for (const relative of await historyFiles(config)) {
-      const data = await readHistoryFile(path.join(config, relative));
+      const active = path.join(config, relative);
+      const imported = original.get(relative);
+      const activeInfo = await snapshotStat(active);
+      if (!activeInfo) continue;
+      if (!activeInfo.isFile()) throw new Error(`session history is not a regular file: ${relative}`);
+      const stamp = fileStamp(activeInfo);
+      // Inode plus nanosecond change times avoid reading and hashing an
+      // untouched private snapshot on every timer tick or clean exit.
+      if (imported?.stamp === stamp) continue;
+      const data = await readHistoryFile(active);
       if (data === null) continue;
       const currentHash = digest(data);
-      if (original.get(relative) === currentHash) continue;
+      const originalHash = typeof imported === 'string' ? imported : imported?.hash;
+      if (originalHash === currentHash) {
+        original.set(relative, { hash: currentHash, size: data.length, stamp });
+        continue;
+      }
       const target = path.join(state, relative);
       const targetInfo = await stat(target);
       if (targetInfo && !targetInfo.isFile()) throw new Error(`session history destination is unsafe: ${relative}`);
@@ -152,9 +231,11 @@ export async function mergeHistory(state, config, original, { final = false } = 
         if (saved.pending) throw new Error(`retained session history has an incomplete JSONL record: ${relative}`);
         pending = current.pending;
         if (pending) unfinished.push(relative);
-        const lines = new Set([...saved.data.toString('utf8').split('\n'), ...current.data.toString('utf8').split('\n')].filter(Boolean));
-        if (lines.size) await atomicWrite(state, relative, Buffer.from([...lines].join('\n') + '\n'));
-      } else if (!retained || digest(retained) === original.get(relative) || digest(retained) === currentHash) {
+        if (!retained || !(await appendHistoryIfSafe(target, data, retained, imported, current, saved))) {
+          const lines = new Set([...saved.data.toString('utf8').split('\n'), ...current.data.toString('utf8').split('\n')].filter(Boolean));
+          if (lines.size) await atomicWrite(state, relative, Buffer.from([...lines].join('\n') + '\n'));
+        }
+      } else if (!retained || digest(retained) === originalHash || digest(retained) === currentHash) {
         await atomicWrite(state, relative, data);
       } else {
         // Non-transcript files (for example a shared memory note) may be
@@ -163,7 +244,7 @@ export async function mergeHistory(state, config, original, { final = false } = 
       }
       // A partially written suffix has not been persisted. Keep it eligible for
       // the next snapshot even when the writer has not changed the file yet.
-      if (!pending) original.set(relative, currentHash);
+      if (!pending) original.set(relative, { hash: currentHash, size: data.length, stamp });
     }
     if (final && unfinished.length) throw new Error(`session history has an incomplete JSONL record: ${unfinished.join(', ')}`);
   });

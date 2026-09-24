@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { prepare, collectCache, inventory, renderMCP, checkRuntime, verifyCatalogOutput, expectedInventory, installerPackageVersion, verifyNativeSource, withProfileLock, validateManifest } from './component-adapter.mjs';
+import { prepare, collectCache, inventory, renderMCP, checkRuntime, verifyCatalogOutput, expectedInventory, installerPackageVersion, verifyNativeSource, verifyBaselineCached, withProfileLock, validateManifest } from './component-adapter.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitSha = bytes => createHash('sha1').update(`blob ${Buffer.byteLength(bytes)}\0`).update(bytes).digest('hex');
@@ -565,6 +565,20 @@ test('baseline corruption and host-agent path/name collisions are rejected', asy
   await assert.rejects(prepare(f.options(manifest()), { ...f.deps, env: { AIRUN_HOST_AGENTS: hosts } }), /agent identity collision/);
   await fs.writeFile(path.join(f.baseline, 'agents/base.md'), 'tampered');
   await assert.rejects(prepare(f.options(manifest()), f.deps), /image baseline changed/);
+});
+
+test('verified immutable baseline receipt is reused only for the same build ID', async t => {
+  const f = await fixture(t);
+  const cache = path.join(f.root, 'cache');
+  const buildID = path.join(f.root, 'build-id');
+  await fs.writeFile(buildID, '100\n');
+  await verifyBaselineCached(f.baseline, cache, buildID);
+  // This mutation is possible only in the test fixture; production uses the
+  // baked image baseline and changes its build ID when that layer changes.
+  await fs.writeFile(path.join(f.baseline, 'settings.json'), 'tampered');
+  await verifyBaselineCached(f.baseline, cache, buildID);
+  await fs.writeFile(buildID, '101\n');
+  await assert.rejects(verifyBaselineCached(f.baseline, cache, buildID), /image baseline changed/);
 });
 
 test('host agents linked to files inside their directory remain selectable after profile preparation', async t => {
