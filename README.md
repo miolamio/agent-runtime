@@ -849,8 +849,9 @@ instead of `/bin/bash`. The default suite makes no model API calls; it includes
 a snapshot permissions check against Docker when the local image is available.
 See [e2e documentation](test/e2e/README.md) for filters and optional provider tests.
 
-Profile adapter and history tests require Linux, Node 24 and `flock`; run them
-as a non-root user. On macOS, use the test image:
+Profile adapter and history tests run with Node 24 or newer. Tests that need
+`flock` are skipped with a reason when it is unavailable. For full coverage,
+run them as a non-root user in a Linux image with `flock`:
 
 ```bash
 docker build -t agent-runtime:profiles-dev docker/

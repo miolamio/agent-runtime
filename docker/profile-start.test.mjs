@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { importHistory, mergeHistory, readHistoryFile, activationEnvironment, historyPersistence } from './profile-start.mjs';
+
+const flockAvailable = !spawnSync('flock', [], { stdio: 'ignore' }).error;
+const testWithFlock = (name, run) => test(name, { skip: flockAvailable ? false : 'flock is not available in PATH' }, run);
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'airun-private-config-test-'));
@@ -19,7 +22,22 @@ async function fixture(t) {
   return { root, write };
 }
 
-test('imports retained session files and excludes all old discovery/configuration', async t => {
+test('missing flock reports the session history prerequisite clearly', async t => {
+  const { root, write } = await fixture(t);
+  const emptyBin = path.join(root, 'empty-bin');
+  await fs.mkdir(emptyBin);
+  const source = fileURLToPath(new URL('./profile-start.mjs', import.meta.url));
+  const wrapper = await write('missing-flock.mjs', `import { withHistoryLock } from ${JSON.stringify(source)};
+withHistoryLock(${JSON.stringify(path.join(root, 'state'))}, async () => { throw new Error('lock was not acquired'); })
+  .catch(error => { console.error(error.message); process.exitCode = 1; });
+`);
+  const result = await launch(wrapper, { ...process.env, PATH: emptyBin });
+  assert.equal(result.code, 1, result.stderr);
+  assert.match(result.stderr, /flock is required for session history persistence/);
+  assert.doesNotMatch(result.stderr, /spawn flock ENOENT|lock was not acquired/);
+});
+
+testWithFlock('imports retained session files and excludes all old discovery/configuration', async t => {
   const { root, write } = await fixture(t);
   await write('state/history.jsonl', '{"prompt":"old"}\n');
   await write('state/projects/-workspace/session.jsonl', '{"message":"saved"}\n');
@@ -33,7 +51,7 @@ test('imports retained session files and excludes all old discovery/configuratio
   assert.equal(await fs.readFile(path.join(active, 'projects/-workspace/session.jsonl'), 'utf8'), '{"message":"saved"}\n');
 });
 
-test('two private snapshots merge concurrent appends and inode replacements without loss', async t => {
+testWithFlock('two private snapshots merge concurrent appends and inode replacements without loss', async t => {
   const { root, write } = await fixture(t);
   const state = path.join(root, 'state');
   await write('state/history.jsonl', '{"prompt":"original"}\n');
@@ -59,7 +77,7 @@ test('two private snapshots merge concurrent appends and inode replacements with
   assert.equal((await fs.readFile(path.join(state, 'history.jsonl'), 'utf8')).trim().split('\n').length, 3);
 });
 
-test('rejects symlinks rather than import or overwrite files outside session state', async t => {
+testWithFlock('rejects symlinks rather than import or overwrite files outside session state', async t => {
   const { root, write } = await fixture(t);
   await write('outside', 'preserved');
   await fs.mkdir(path.join(root, 'state'));
@@ -69,7 +87,7 @@ test('rejects symlinks rather than import or overwrite files outside session sta
   assert.equal(await fs.readFile(path.join(root, 'outside'), 'utf8'), 'preserved');
 });
 
-test('periodic snapshots publish complete records only and pick up the completed tail later', async t => {
+testWithFlock('periodic snapshots publish complete records only and pick up the completed tail later', async t => {
   const { root, write } = await fixture(t);
   const state = path.join(root, 'state');
   const active = path.join(root, 'active');
@@ -89,7 +107,7 @@ test('periodic snapshots publish complete records only and pick up the completed
   await assert.rejects(mergeHistory(state, active, original, { final: true }), /incomplete JSONL record/);
 });
 
-test('final snapshot accepts a complete last JSON record without a newline', async t => {
+testWithFlock('final snapshot accepts a complete last JSON record without a newline', async t => {
   const { root, write } = await fixture(t);
   await write('active/history.jsonl', '{"prompt":"complete"}');
   await mergeHistory(path.join(root, 'state'), path.join(root, 'active'), new Map(), { final: true });
@@ -187,7 +205,7 @@ async function launch(wrapper, env) {
   return { code, stdout, stderr };
 }
 
-test('supervised launch initializes correct onboarding, preserves arguments and history as non-root', async t => {
+testWithFlock('supervised launch initializes correct onboarding, preserves arguments and history as non-root', async t => {
   const { root, wrapper, env, write } = await startupFixture(t);
   await write('state/history.jsonl', '{"prompt":"old"}\n');
   const result = await launch(wrapper, env);
@@ -212,7 +230,7 @@ test('update exits without readiness, agent execution, or history import', async
   await assert.rejects(fs.stat(path.join(root, 'state')), { code: 'ENOENT' });
 });
 
-test('preparation failure exits before readiness or agent execution', async t => {
+testWithFlock('preparation failure exits before readiness or agent execution', async t => {
   const { wrapper, env } = await startupFixture(t);
   const result = await launch(wrapper, { ...env, TEST_PREPARE_FAILURE: '1' });
   assert.equal(result.code, 12, result.stderr);
@@ -220,7 +238,7 @@ test('preparation failure exits before readiness or agent execution', async t =>
   await assert.rejects(fs.stat(env.TEST_REPORT), { code: 'ENOENT' });
 });
 
-test('failed final persistence keeps a private recovery directory on the retained volume', async t => {
+testWithFlock('failed final persistence keeps a private recovery directory on the retained volume', async t => {
   const { root, wrapper, env } = await startupFixture(t);
   const result = await launch(wrapper, { ...env, TEST_BREAK_PERSISTENCE: '1' });
   assert.equal(result.code, 1, result.stderr);
@@ -251,7 +269,7 @@ test('stale state cannot redirect private configuration into a host-input direct
   assert.equal((await fs.stat(path.join(root, 'host-agents/agent.md'))).mode, before.mode);
 });
 
-test('incomplete tail at process exit retains exact bytes for recovery without corrupting saved JSONL', async t => {
+testWithFlock('incomplete tail at process exit retains exact bytes for recovery without corrupting saved JSONL', async t => {
   const { root, wrapper, env } = await startupFixture(t);
   const result = await launch(wrapper, { ...env, TEST_INCOMPLETE_TAIL: '1' });
   assert.equal(result.code, 1, result.stderr);
@@ -261,7 +279,7 @@ test('incomplete tail at process exit retains exact bytes for recovery without c
   assert.equal(await fs.readFile(path.join(root, 'state/history.jsonl'), 'utf8'), '{"prompt":"new"}\n');
 });
 
-test('SIGTERM reaches the agent and retained history is saved before supervisor exits', async t => {
+testWithFlock('SIGTERM reaches the agent and retained history is saved before supervisor exits', async t => {
   const { root, wrapper, env } = await startupFixture(t);
   const child = spawn(process.execPath, [wrapper], { env: { ...env, TEST_WAIT: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => child.kill('SIGKILL'));
@@ -280,7 +298,7 @@ test('SIGTERM reaches the agent and retained history is saved before supervisor 
   assert.deepEqual(await fs.readdir(path.join(root, 'state/.airun-runs')), []);
 });
 
-test('child SIGKILL returns conventional exit 137 while the supervisor saves history', async t => {
+testWithFlock('child SIGKILL returns conventional exit 137 while the supervisor saves history', async t => {
   const { root, wrapper, env } = await startupFixture(t);
   const result = await launch(wrapper, { ...env, TEST_CHILD_SIGKILL: '1' });
   assert.equal(result.code, 137, result.stderr);

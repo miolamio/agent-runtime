@@ -95,11 +95,15 @@ export async function withHistoryLock(state, operation) {
   const info = await stat(lockPath);
   if (info && !info.isFile()) throw new Error('session history lock is not a regular file');
   const holder = spawn('flock', ['--exclusive', lockPath, process.execPath, '-e', 'process.stdout.write("locked\\n");process.stdin.resume()'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  holder.stderr.resume();
+  holder.stdin.on('error', () => {});
   const closed = new Promise(resolve => holder.once('close', resolve));
   try {
     await new Promise((resolve, reject) => {
       let output = '';
-      holder.once('error', reject);
+      holder.once('error', error => reject(error.code === 'ENOENT'
+        ? new Error('flock is required for session history persistence', { cause: error })
+        : error));
       holder.once('close', code => reject(new Error(`session history lock failed (${code})`)));
       holder.stdout.on('data', chunk => { output += chunk; if (output.includes('locked\n')) resolve(); });
     });
