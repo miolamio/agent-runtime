@@ -230,7 +230,7 @@ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 	fmt.Println("  airun keys add <provider>      # add more providers")
 	fmt.Println("  airun --check                  # verify config")
 	fmt.Println("  airun rebuild                  # build docker image")
-	fmt.Println("  airun shell -p dev             # start interactive session")
+	fmt.Println("  airun shell --profile dev      # start interactive session")
 
 	return nil
 }

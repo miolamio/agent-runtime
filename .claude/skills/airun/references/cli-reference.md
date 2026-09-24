@@ -5,7 +5,7 @@
 ### One-shot task
 ```bash
 airun "prompt"
-airun -p dev "prompt"                   # with profile
+airun --profile dev "prompt"            # with profile
 airun --provider mm "prompt"            # override provider
 airun --model kimi-k2.5 "prompt"        # override model
 airun --output ./results "prompt"       # export workspace after run
@@ -14,7 +14,7 @@ airun --output ./results "prompt"       # export workspace after run
 ### Interactive shell
 ```bash
 airun shell
-airun shell -p dev                      # with profile
+airun shell --profile dev               # with profile
 airun shell --provider kimi             # override provider
 airun shell --mount /path/to/project    # custom workspace mount
 airun shell --no-state                  # ephemeral (no persistent volume)
@@ -97,7 +97,7 @@ airun --version                         # show version
 |------|-------|-------------|
 | `--provider` | | Provider: z/zai, m/mm/minimax, k/kimi, r/remote |
 | `--model` | `-m` | Model override (e.g. glm-5.3, kimi-k2.5) |
-| `--profile` | `-p` | Profile name (dev, text, default) |
+| `--profile` | `-p` (deprecated) | Profile name (dev, text, default) |
 | `--output` | | Export workspace to directory after run |
 | `--no-state` | | Disable persistent state volume |
 | `--loop` | | Enable autonomous loop mode |

@@ -12,13 +12,13 @@ CLI tool that runs Claude Code agents inside Docker containers with multi-provid
 ```bash
 # Run agent task
 airun "prompt"
-airun -p dev "prompt"
+airun --profile dev "prompt"
 airun --provider kimi "prompt"
 airun --model glm-5.3 "prompt"
 
 # Interactive session
 airun shell
-airun shell -p dev
+airun shell --profile dev
 airun shell --provider mm
 
 # Parallel agents
@@ -45,6 +45,7 @@ airun rebuild --no-cache
 # Persistent state
 airun state info
 airun state reset
+airun profile gc <name>  # collect unused components and failed session snapshots
 
 # System
 airun --check
@@ -67,7 +68,7 @@ Model priority: `--model` flag > config default for provider.
 
 ## Profiles
 
-YAML files at `~/airun-profiles/`. Activate with `-p <name>`.
+YAML files at `~/.airun/profiles/`. Activate with `--profile <name>`. The old `-p` alias still works with a deprecation warning.
 
 Each profile bundles: skills (mounted RO), plugins, settings, optional provider override.
 

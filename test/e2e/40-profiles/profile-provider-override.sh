@@ -20,7 +20,7 @@ EOF
 
 mk_test_profile "$th" "$tag" "provider: kimi"
 
-out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" -p "$tag" "ping" 2>&1 || true)
+out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" --profile "$tag" "ping" 2>&1 || true)
 
 # The airun banner reports the provider it actually resolved.
 assert_contains "$out" "provider=kimi" "airun banner reflects profile provider override"

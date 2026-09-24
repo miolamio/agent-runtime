@@ -11,7 +11,7 @@ on_exit "rm -rf '$th'"
 install_docker_shim "$th"
 
 set +e
-out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" -p nonexistent "ping" 2>&1)
+out=$(PATH="$th/bin:$PATH" HOME="$th" "$AIRUN_BIN" --profile nonexistent "ping" 2>&1)
 ec=$?
 set -e
 
