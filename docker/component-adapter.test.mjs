@@ -447,6 +447,19 @@ test('host agents linked to files inside their directory remain selectable after
   }
 });
 
+test('host agent directory links retain nested agents under their declared name', async t => {
+  const f = await fixture(t);
+  const hosts = path.join(f.root, 'hosts');
+  await put(hosts, 'versions/v1/reviewer.md', agent('reviewer'));
+  await fs.symlink('versions/v1', path.join(hosts, 'current'));
+  const m = manifest(); m.settings.agent = 'reviewer';
+  const options = f.options(m);
+  const result = await prepare(options, { ...f.deps, env: { AIRUN_HOST_AGENTS: hosts } });
+  assert.deepEqual(result.launch.args, ['--agent', 'reviewer']);
+  assert.equal(await fs.readlink(path.join(options.config, 'agents/current')), 'versions/v1');
+  assert.equal(await fs.readFile(path.join(options.config, 'agents/current/reviewer.md'), 'utf8'), agent('reviewer'));
+});
+
 test('host agent links outside their directory fail with the linked file name', async t => {
   for (const target of ['outside', 'missing']) {
     await t.test(target, async t => {
