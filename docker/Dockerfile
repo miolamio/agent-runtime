@@ -2,10 +2,10 @@
 # Build: docker build -t agent-runtime:latest docker/
 # Usage: airun "prompt" | airun shell
 
-FROM buildpack-deps:bookworm-scm
+FROM buildpack-deps:trixie-scm
 
 ARG USERNAME=claude
-ARG GIT_DELTA_VERSION=0.19.2
+ARG GIT_DELTA_VERSION=0.20.1
 ARG TZ=UTC
 # Pass --build-arg CLAUDE_BUST_CACHE=$(date +%s) to force Claude Code reinstall
 ARG CLAUDE_BUST_CACHE=1
@@ -24,8 +24,8 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     ripgrep fd-find jq gosu locales zsh fzf \
     # Playwright Chromium runtime dependencies
-    libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-    libxkbcommon0 libgbm1 libpango-1.0-0 libcairo2 libasound2 \
+    libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 \
+    libxkbcommon0 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 \
     libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
     fonts-liberation fonts-noto-color-emoji \
     && locale-gen en_US.UTF-8
