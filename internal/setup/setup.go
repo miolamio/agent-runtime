@@ -49,13 +49,13 @@ ARUN_PROVIDER=zai
 ZAI_API_KEY=
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
 ZAI_MODEL=glm-5.3
-ZAI_HAIKU_MODEL=GLM-4.5-Air
+ZAI_HAIKU_MODEL=glm-5.3-flash
 MINIMAX_API_KEY=
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
-MINIMAX_MODEL=MiniMax-M2.7
+MINIMAX_MODEL=MiniMax-M3
 KIMI_API_KEY=
 KIMI_BASE_URL=https://api.kimi.com/coding/
-KIMI_MODEL=kimi-k2.5
+KIMI_MODEL=kimi-for-coding
 API_TIMEOUT_MS=3000000
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 `, filepath.Join(home, "src"))

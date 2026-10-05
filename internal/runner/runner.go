@@ -32,7 +32,7 @@ type RunOpts struct {
 	Prompt      string
 	Provider    string // z/zai | m/mm/minimax | k/kimi | r/remote
 	Profile     string // profile name (loads skills, settings, provider)
-	Model       string // model override (e.g. kimi-k2.5, glm-5.3)
+	Model       string // model override (e.g. kimi-for-coding, glm-5.3)
 	Loop        bool
 	MaxLoops    int
 	Name        string

@@ -54,7 +54,7 @@ Running Claude Code directly on your host works fine for interactive use, but au
 
 ### Prerequisites
 
-- **Go 1.25+** — to build the CLI
+- **Go 1.27+** — to build the CLI
 - **Docker** — to run containers (Docker Desktop or Docker Engine)
 
 ### Step 1: Build the CLI
@@ -144,7 +144,7 @@ user updates, authentication limits, and reversible proxy settings.
 | Provider | Sign up | What you get |
 |----------|---------|--------------|
 | **Z.AI** | [z.ai](https://z.ai) | GLM-5.3, GLM-4.7 models via `api.z.ai/api/anthropic` |
-| **MiniMax** | [minimax.io](https://minimax.io) | MiniMax-M2.7 model via `api.minimax.io/anthropic` |
+| **MiniMax** | [minimax.io](https://minimax.io) | MiniMax-M3 model via `api.minimax.io/anthropic` |
 | **Kimi** | [kimi.com](https://www.kimi.com/code/docs/en/) | Kimi K2.5 model via `api.kimi.com/coding/` |
 
 You can configure one, two, or all three. Switch between them with `--provider`.
@@ -182,17 +182,17 @@ ARUN_PROVIDER=zai                  # Default provider: zai | minimax | kimi | re
 ZAI_API_KEY=sk-abc123...           # Your Z.AI API key
 ZAI_BASE_URL=https://api.z.ai/api/anthropic
 ZAI_MODEL=glm-5.3                 # Primary model
-ZAI_HAIKU_MODEL=GLM-4.5-Air       # Fast model
+ZAI_HAIKU_MODEL=glm-5.3-flash       # Fast model
 
 # ── MiniMax ──
 MINIMAX_API_KEY=mm-xyz789...       # Your MiniMax API key
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
-MINIMAX_MODEL=MiniMax-M2.7        # Primary model
+MINIMAX_MODEL=MiniMax-M3        # Primary model
 
 # ── Kimi (Moonshot AI) ──
 KIMI_API_KEY=sk-kimi-abc...        # Your Kimi API key
 KIMI_BASE_URL=https://api.kimi.com/coding/
-KIMI_MODEL=kimi-k2.5              # Primary model
+KIMI_MODEL=kimi-for-coding              # Primary model
 
 # ── Container ──
 API_TIMEOUT_MS=3000000                         # Request timeout (50 min)
@@ -256,13 +256,13 @@ airun --provider k "your prompt"
 | `ZAI_API_KEY` | Yes* | — | Z.AI API key |
 | `ZAI_BASE_URL` | No | `https://api.z.ai/api/anthropic` | Z.AI endpoint |
 | `ZAI_MODEL` | No | `glm-5.3` | Z.AI primary model |
-| `ZAI_HAIKU_MODEL` | No | `GLM-4.5-Air` | Z.AI fast model |
+| `ZAI_HAIKU_MODEL` | No | `glm-5.3-flash` | Z.AI fast model |
 | `MINIMAX_API_KEY` | Yes* | — | MiniMax API key |
 | `MINIMAX_BASE_URL` | No | `https://api.minimax.io/anthropic` | MiniMax endpoint |
-| `MINIMAX_MODEL` | No | `MiniMax-M2.7` | MiniMax primary model |
+| `MINIMAX_MODEL` | No | `MiniMax-M3` | MiniMax primary model |
 | `KIMI_API_KEY` | Yes* | — | Kimi API key |
 | `KIMI_BASE_URL` | No | `https://api.kimi.com/coding/` | Kimi endpoint |
-| `KIMI_MODEL` | No | `kimi-k2.5` | Kimi primary model |
+| `KIMI_MODEL` | No | `kimi-for-coding` | Kimi primary model |
 | `API_TIMEOUT_MS` | No | `3000000` | Request timeout in milliseconds |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | No | `1` | Disable telemetry |
 
@@ -352,7 +352,7 @@ CDP port does not itself launch Chromium or configure a browser client.
 | Alias | Provider | Endpoint | Default model | Context |
 |-------|----------|----------|---------------|---------|
 | `z`, `zai` | Z.AI | `api.z.ai/api/anthropic` | GLM-5.3 | — |
-| `m`, `mm`, `minimax` | MiniMax | `api.minimax.io/anthropic` | MiniMax-M2.7 | — |
+| `m`, `mm`, `minimax` | MiniMax | `api.minimax.io/anthropic` | MiniMax-M3 | — |
 | `k`, `kimi` | Kimi (Moonshot AI) | `api.kimi.com/coding/` | Kimi K2.5 | 256K |
 | `r`, `remote` | Remote proxy | configurable | configurable | — |
 
@@ -449,17 +449,17 @@ providers:
     models:
       - glm-5.3
       - glm-4.7
-      - GLM-4.5-Air
+      - glm-5.3-flash
   minimax:
     base_url: "https://api.minimax.io/anthropic"
     api_key: "your-minimax-key"
     models:
-      - MiniMax-M2.7
+      - MiniMax-M3
   kimi:
     base_url: "https://api.kimi.com/coding/"
     api_key: "your-kimi-key"
     models:
-      - kimi-k2.5
+      - kimi-for-coding
 ```
 
 #### Step 3: Set up nginx reverse proxy with SSL
@@ -549,7 +549,7 @@ curl -s https://proxy.example.com/v1/models -H "x-api-key: <any-valid-token>"
 Expected output from systemd:
 
 ```
-[proxy] Providers: 3 (5 models: glm-5.3, glm-4.7, GLM-4.5-Air, MiniMax-M2.7, kimi-k2.5)
+[proxy] Providers: 3 (5 models: glm-5.3, glm-4.7, glm-5.3-flash, MiniMax-M3, kimi-for-coding)
 [proxy] Users: 15 active
 [proxy] Rate limit: unlimited
 ```
@@ -692,7 +692,7 @@ airun -p text "Translate README.md to Russian"
 
 The `agent-runtime:latest` image is built from `docker/Dockerfile`:
 
-- **Base:** `buildpack-deps:bookworm-scm`
+- **Base:** `buildpack-deps:trixie-scm`
 - **Tools:** ripgrep, fd-find, jq, fzf, git-delta, Oh-My-Zsh
 - **Runtime:** Claude Code CLI, non-root user (`claude:1001`), gosu
 - **SSH:** known hosts for GitHub, GitLab, and Bitbucket (fetched at build time)

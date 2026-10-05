@@ -34,17 +34,17 @@ providers:
     models:
       - glm-5.3
       - glm-4.7
-      - GLM-4.5-Air
+      - glm-5.3-flash
   kimi:
     base_url: "https://api.kimi.com/coding/"
     api_key: "YOUR_KIMI_KEY"
     models:
-      - kimi-k2.5
+      - kimi-for-coding
   minimax:
     base_url: "https://api.minimax.io/anthropic"
     api_key: "YOUR_MINIMAX_KEY"
     models:
-      - MiniMax-M2.7
+      - MiniMax-M3
 ```
 
 ### 3. Add users

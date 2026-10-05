@@ -20,12 +20,12 @@ providers:
     api_key: "test-key-zai"
     models:
       - glm-4.7
-      - GLM-4.5-Air
+      - glm-5.3-flash
   minimax:
     base_url: "https://api.minimax.io/anthropic"
     api_key: "test-key-mm"
     models:
-      - MiniMax-M2.7
+      - MiniMax-M3
 `), 0600)
 
 	cfg, err := LoadProxyConfig(path)
@@ -73,7 +73,7 @@ func TestResolveModel(t *testing.T) {
 	cfg := &ProxyConfig{
 		Providers: map[string]ProviderEntry{
 			"zai":     {BaseURL: "https://z.ai", APIKey: "k1", Models: []string{"glm-4.7"}},
-			"minimax": {BaseURL: "https://mm.io", APIKey: "k2", Models: []string{"MiniMax-M2.7"}},
+			"minimax": {BaseURL: "https://mm.io", APIKey: "k2", Models: []string{"MiniMax-M3"}},
 		},
 	}
 	p, ok := cfg.ResolveModel("glm-4.7")
@@ -112,8 +112,8 @@ providers: {}
 func TestAllModels(t *testing.T) {
 	cfg := &ProxyConfig{
 		Providers: map[string]ProviderEntry{
-			"zai":     {Models: []string{"glm-4.7", "GLM-4.5-Air"}},
-			"minimax": {Models: []string{"MiniMax-M2.7"}},
+			"zai":     {Models: []string{"glm-4.7", "glm-5.3-flash"}},
+			"minimax": {Models: []string{"MiniMax-M3"}},
 		},
 	}
 	models := cfg.AllModels()

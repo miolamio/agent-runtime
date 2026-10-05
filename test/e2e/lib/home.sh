@@ -31,7 +31,7 @@ ARUN_MODE=bind
 ZAI_API_KEY=e2e-placeholder-invalid-key
 ZAI_BASE_URL=http://127.0.0.1:1
 ZAI_MODEL=glm-5.3
-ZAI_HAIKU_MODEL=GLM-4.5-Air
+ZAI_HAIKU_MODEL=glm-5.3-flash
 API_TIMEOUT_MS=5000
 EOF
     chmod 0600 "$th/.airun/config.env"

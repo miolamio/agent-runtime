@@ -38,7 +38,7 @@ func TestContainerEnvWithModel_ZAI(t *testing.T) {
 func TestContainerEnvWithModel_Kimi(t *testing.T) {
 	cfg := &Config{
 		KimiBaseURL: "https://api.kimi.com/coding/", KimiAPIKey: "sk-kimi",
-		KimiModel: "kimi-k2.5", APITimeout: "3000000", DisableTraffic: "1",
+		KimiModel: "kimi-for-coding", APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("kimi", "")
 	assertEnv(t, env, "ENABLE_TOOL_SEARCH=false")
@@ -47,7 +47,7 @@ func TestContainerEnvWithModel_Kimi(t *testing.T) {
 func TestContainerEnvWithModel_Anthropic(t *testing.T) {
 	cfg := &Config{
 		AnthropicBaseURL: "https://api.anthropic.com", AnthropicAPIKey: "sk-ant-test",
-		AnthropicModel: "claude-sonnet-4-6-20250514", APITimeout: "3000000", DisableTraffic: "1",
+		AnthropicModel: "claude-sonnet-5-5", APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("anthropic", "")
 	assertEnv(t, env, "ANTHROPIC_BASE_URL=https://api.anthropic.com")
@@ -69,13 +69,13 @@ func TestContainerEnvWithModel_Override(t *testing.T) {
 func TestContainerEnvWithModel_AllTiersMapped(t *testing.T) {
 	cfg := &Config{
 		ZaiBaseURL: "https://api.z.ai/api/anthropic", ZaiAPIKey: "sk-test",
-		ZaiModel: "glm-5.3", ZaiHaikuModel: "GLM-4.5-Air",
+		ZaiModel: "glm-5.3", ZaiHaikuModel: "glm-5.3-flash",
 		APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("zai", "")
 	assertEnv(t, env, "ANTHROPIC_DEFAULT_SONNET_MODEL=glm-5.3")
 	assertEnv(t, env, "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.3")
-	assertEnv(t, env, "ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.5-Air")
+	assertEnv(t, env, "ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-5.3-flash")
 }
 
 // Providers with no haiku tier of their own fall back to the default model

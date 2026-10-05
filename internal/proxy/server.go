@@ -121,17 +121,17 @@ providers:
   #   models:
   #     - glm-5.3
   #     - glm-4.7
-  #     - GLM-4.5-Air
+  #     - glm-5.3-flash
   # minimax:
   #   base_url: "https://api.minimax.io/anthropic"
   #   api_key: "YOUR_KEY"
   #   models:
-  #     - MiniMax-M2.7
+  #     - MiniMax-M3
   # kimi:
   #   base_url: "https://api.kimi.com/coding/"
   #   api_key: "YOUR_KEY"
   #   models:
-  #     - kimi-k2.5
+  #     - kimi-for-coding
 
 # TLS (optional — uncomment for direct HTTPS without reverse proxy)
 # tls_cert: "/path/to/cert.pem"

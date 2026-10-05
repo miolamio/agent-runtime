@@ -57,8 +57,8 @@ airun history
 | Provider | Aliases | Default Model | Base URL |
 |----------|---------|---------------|----------|
 | Z.AI | z, zai | glm-5.3 | api.z.ai/api/anthropic |
-| MiniMax | m, mm, minimax | MiniMax-M2.7 | api.minimax.io/anthropic |
-| Kimi | k, kimi | kimi-k2.5 | api.kimi.com/coding/ |
+| MiniMax | m, mm, minimax | MiniMax-M3 | api.minimax.io/anthropic |
+| Kimi | k, kimi | kimi-for-coding | api.kimi.com/coding/ |
 | Remote | r, remote | configurable | configurable |
 
 Provider priority: `--provider` flag > profile provider > config default.

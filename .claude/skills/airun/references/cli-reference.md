@@ -7,7 +7,7 @@
 airun "prompt"
 airun -p dev "prompt"                   # with profile
 airun --provider mm "prompt"            # override provider
-airun --model kimi-k2.5 "prompt"        # override model
+airun --model kimi-for-coding "prompt"        # override model
 airun --output ./results "prompt"       # export workspace after run
 ```
 
@@ -96,7 +96,7 @@ airun --version                         # show version
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--provider` | | Provider: z/zai, m/mm/minimax, k/kimi, r/remote |
-| `--model` | `-m` | Model override (e.g. glm-5.3, kimi-k2.5) |
+| `--model` | `-m` | Model override (e.g. glm-5.3, kimi-for-coding) |
 | `--profile` | `-p` | Profile name (dev, text, default) |
 | `--output` | | Export workspace to directory after run |
 | `--no-state` | | Disable persistent state volume |
@@ -120,15 +120,15 @@ ZAI_MODEL=glm-5.3
 
 MINIMAX_API_KEY=...                     # MiniMax
 MINIMAX_BASE_URL=https://api.minimax.io/anthropic
-MINIMAX_MODEL=MiniMax-M2.7
+MINIMAX_MODEL=MiniMax-M3
 
 KIMI_API_KEY=...                        # Kimi
 KIMI_BASE_URL=https://api.kimi.com/coding/
-KIMI_MODEL=kimi-k2.5
+KIMI_MODEL=kimi-for-coding
 
 REMOTE_BASE_URL=https://proxy.example.com  # Remote proxy
 REMOTE_API_KEY=sk-ai-...
-REMOTE_MODELS=glm-5.3,kimi-k2.5
+REMOTE_MODELS=glm-5.3,kimi-for-coding
 REMOTE_DEFAULT_MODEL=glm-5.3
 
 API_TIMEOUT_MS=3000000                  # 50 minutes

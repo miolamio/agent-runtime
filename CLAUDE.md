@@ -15,7 +15,7 @@ Agent Runtime — Docker-based infrastructure for running Claude Code agents in 
 ## Build, Test, Run
 
 ```bash
-# Build (Go 1.25+; module pinned via go.mod)
+# Build (Go 1.27+; module pinned via go.mod)
 go build -o bin/airun ./cmd/airun/
 
 # Cross-compile for Linux (proxy server deployment)
@@ -29,7 +29,7 @@ go test -race ./...
 go test ./internal/proxy/...
 go test ./internal/proxy/ -run TestForwardRequest -v
 
-# Lint (CI uses golangci-lint v2.13.0; config in .golangci.yml)
+# Lint (CI uses golangci-lint v2.14.0; config in .golangci.yml)
 golangci-lint run
 
 # Build Docker image

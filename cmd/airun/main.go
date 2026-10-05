@@ -291,7 +291,7 @@ func main() {
 	// Parse run flags
 	fs := flag.NewFlagSet("airun", flag.ExitOnError)
 	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
-	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
+	modelFlag := fs.String("model", "", "Model override (e.g. kimi-for-coding, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
@@ -360,7 +360,7 @@ func main() {
 func runShell(args []string) {
 	fs := flag.NewFlagSet("shell", flag.ExitOnError)
 	provider := fs.String("provider", "", "Provider: zai | minimax | kimi | remote")
-	modelFlag := fs.String("model", "", "Model override (e.g. kimi-k2.5, glm-5.3)")
+	modelFlag := fs.String("model", "", "Model override (e.g. kimi-for-coding, glm-5.3)")
 	fs.StringVar(modelFlag, "m", "", "Model override (short)")
 	profileName := fs.String("p", "", "Profile name (dev, text, default)")
 	fs.StringVar(profileName, "profile", "", "Profile name (dev, text, default)")
@@ -420,10 +420,10 @@ Usage:
   airun "prompt"                              Run agent task
   airun -p dev "prompt"                       Run with profile (skills, settings)
   airun --provider mm "prompt"                Run with specific provider
-  airun --model kimi-k2.5 "prompt"            Run with specific model
+  airun --model kimi-for-coding "prompt"            Run with specific model
   airun shell                                 Interactive Claude Code session
   airun shell -p dev                          Interactive with profile
-  airun shell --model kimi-k2.5               Interactive with specific model
+  airun shell --model kimi-for-coding               Interactive with specific model
   airun shell --mount /path/to/project        Interactive with project mounted
   airun shell --provider mm                   Interactive with MiniMax
   airun --loop --max-loops N "prompt"         Autonomous loop mode
@@ -458,7 +458,7 @@ Usage:
 Flags:
   -p, --profile    Profile name (loads skills, settings, provider)
   --provider       Provider override: z/zai | m/mm/minimax | k/kimi | r/remote
-  -m, --model      Model override (e.g. kimi-k2.5, glm-5.3, MiniMax-M2.7)
+  -m, --model      Model override (e.g. kimi-for-coding, glm-5.3, MiniMax-M3)
   --output         Export workspace to this directory after run
   --no-state       Disable persistent state (ephemeral container)
   --browser        Browser display in container: vnc | cdp | both (maps ports 6080/9222)
