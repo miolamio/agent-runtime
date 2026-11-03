@@ -332,8 +332,8 @@
     {
       "type": "text", "id": "nj_t",
       "x": 460, "y": 371, "width": 150, "height": 25,
-      "text": "Node.js 22 + npm",
-      "originalText": "Node.js 22 + npm",
+      "text": "Node.js 26 + npm",
+      "originalText": "Node.js 26 + npm",
       "fontSize": 14, "fontFamily": 3,
       "textAlign": "center", "verticalAlign": "middle",
       "strokeColor": "#374151", "backgroundColor": "transparent",

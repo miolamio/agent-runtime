@@ -37,9 +37,11 @@ RUN --mount=type=cache,target=/var/lib/apt,sharing=locked \
     xvfb x11vnc \
     && rm -rf /var/lib/apt/lists/*
 
-# noVNC (web-based VNC client)
-RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/noVNC \
-    && git clone --depth 1 https://github.com/novnc/websockify.git /opt/noVNC/utils/websockify \
+# noVNC (web-based VNC client) — pinned to release tags
+ARG NOVNC_VERSION=v1.7.0
+ARG WEBSOCKIFY_VERSION=v0.13.0
+RUN git clone --depth 1 --branch ${NOVNC_VERSION} https://github.com/novnc/noVNC.git /opt/noVNC \
+    && git clone --depth 1 --branch ${WEBSOCKIFY_VERSION} https://github.com/novnc/websockify.git /opt/noVNC/utils/websockify \
     && ln -s /opt/noVNC/vnc.html /opt/noVNC/index.html
 
 # ── Non-root user ──
@@ -65,7 +67,8 @@ RUN echo "cache-bust: ${CLAUDE_BUST_CACHE}" && curl -fsSL "https://claude.ai/ins
 USER root
 
 # ── Node.js LTS (for Playwright and skill scripts) ──
-ARG NODE_MAJOR=24
+# Node 26 "Lithium" entered Active LTS on 2026-10-28.
+ARG NODE_MAJOR=26
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -75,7 +78,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
 # (open, snapshot, click, fill, run-code, video-*). It pulls playwright as a
 # dependency; do not install playwright separately to avoid a version mismatch
 # between the CLI's bundled playwright and a standalone one.
-RUN npm install -g @playwright/cli
+ARG PLAYWRIGHT_CLI_VERSION=0.1.23
+RUN npm install -g @playwright/cli@${PLAYWRIGHT_CLI_VERSION}
 USER ${USERNAME}
 # `install-browser chromium` pulls Chromium, headless shell, and FFmpeg;
 # Firefox/WebKit are skipped on purpose — GTK deps aren't installed and the

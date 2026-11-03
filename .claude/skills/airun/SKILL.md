@@ -58,7 +58,7 @@ airun history
 |----------|---------|---------------|----------|
 | Z.AI | z, zai | glm-5.3 | api.z.ai/api/anthropic |
 | MiniMax | m, mm, minimax | MiniMax-M3 | api.minimax.io/anthropic |
-| Kimi | k, kimi | kimi-for-coding | api.kimi.com/coding/ |
+| Kimi | k, kimi | k3.1-pro | api.kimi.com/coding/ |
 | Remote | r, remote | configurable | configurable |
 
 Provider priority: `--provider` flag > profile provider > config default.
@@ -94,7 +94,7 @@ airun proxy disconnect                             # cleanup
 
 ## Docker Container
 
-Image `agent-runtime:latest` includes: Claude Code CLI, Node.js 22, Playwright + Chromium, 20 skills, 3 plugins (context7, skill-creator, superpowers), Debian Bookworm.
+Image `agent-runtime:latest` includes: Claude Code CLI, Node.js 26 LTS, Playwright CLI + Chromium, git-delta, plugins (context7, skill-creator, superpowers), Debian 13 (trixie).
 
 Named volume `airun-claude-state` persists `~/.claude` between runs. Use `airun state reset` after rebuilding image.
 
