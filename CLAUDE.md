@@ -29,7 +29,7 @@ go test -race ./...
 go test ./internal/proxy/...
 go test ./internal/proxy/ -run TestForwardRequest -v
 
-# Lint (CI uses golangci-lint v2.14.0; config in .golangci.yml)
+# Lint (CI uses golangci-lint v2.15.0; config in .golangci.yml)
 golangci-lint run
 
 # Build Docker image
