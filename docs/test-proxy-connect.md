@@ -243,7 +243,7 @@ curl -fsSL https://raw.githubusercontent.com/miolamio/agent-runtime/main/scripts
 **Run:**
 ```bash
 airun proxy connect http://PROXY:8080 sk-ai-TOKEN
-# When prompted for default model, choose a non-default one (e.g. kimi-for-coding)
+# When prompted for default model, choose a non-default one (e.g. k3.1-pro)
 ```
 
 **Verify:**

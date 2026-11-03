@@ -131,7 +131,7 @@ providers:
   #   base_url: "https://api.kimi.com/coding/"
   #   api_key: "YOUR_KEY"
   #   models:
-  #     - kimi-for-coding
+  #     - k3.1-pro
 
 # TLS (optional — uncomment for direct HTTPS without reverse proxy)
 # tls_cert: "/path/to/cert.pem"

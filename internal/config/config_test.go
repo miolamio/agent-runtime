@@ -38,7 +38,7 @@ func TestContainerEnvWithModel_ZAI(t *testing.T) {
 func TestContainerEnvWithModel_Kimi(t *testing.T) {
 	cfg := &Config{
 		KimiBaseURL: "https://api.kimi.com/coding/", KimiAPIKey: "sk-kimi",
-		KimiModel: "kimi-for-coding", APITimeout: "3000000", DisableTraffic: "1",
+		KimiModel: "k3.1-pro", APITimeout: "3000000", DisableTraffic: "1",
 	}
 	env := cfg.ContainerEnvWithModel("kimi", "")
 	assertEnv(t, env, "ENABLE_TOOL_SEARCH=false")

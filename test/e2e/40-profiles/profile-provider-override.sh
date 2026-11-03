@@ -15,7 +15,7 @@ install_docker_shim "$th"
 cat >> "$th/.airun/config.env" <<EOF
 KIMI_API_KEY=e2e-kimi-key
 KIMI_BASE_URL=http://127.0.0.1:1
-KIMI_MODEL=kimi-for-coding
+KIMI_MODEL=k3.1-pro
 EOF
 
 mk_test_profile "$th" "$tag" "provider: kimi"

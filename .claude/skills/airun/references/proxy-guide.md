@@ -39,7 +39,7 @@ providers:
     base_url: "https://api.kimi.com/coding/"
     api_key: "YOUR_KIMI_KEY"
     models:
-      - kimi-for-coding
+      - k3.1-pro
   minimax:
     base_url: "https://api.minimax.io/anthropic"
     api_key: "YOUR_MINIMAX_KEY"

@@ -77,7 +77,7 @@ func Load() (*Config, error) {
 		MinimaxBaseURL: "https://api.minimax.io/anthropic",
 		MinimaxModel:   "MiniMax-M3",
 		KimiBaseURL:      "https://api.kimi.com/coding/",
-		KimiModel:        "kimi-for-coding",
+		KimiModel:        "k3.1-pro",
 		AnthropicBaseURL: "https://api.anthropic.com",
 		AnthropicModel:   "claude-sonnet-5-5",
 		APITimeout:     "3000000",

@@ -192,7 +192,7 @@ MINIMAX_MODEL=MiniMax-M3        # Primary model
 # ── Kimi (Moonshot AI) ──
 KIMI_API_KEY=sk-kimi-abc...        # Your Kimi API key
 KIMI_BASE_URL=https://api.kimi.com/coding/
-KIMI_MODEL=kimi-for-coding              # Primary model
+KIMI_MODEL=k3.1-pro              # Primary model
 
 # ── Container ──
 API_TIMEOUT_MS=3000000                         # Request timeout (50 min)
@@ -262,7 +262,7 @@ airun --provider k "your prompt"
 | `MINIMAX_MODEL` | No | `MiniMax-M3` | MiniMax primary model |
 | `KIMI_API_KEY` | Yes* | — | Kimi API key |
 | `KIMI_BASE_URL` | No | `https://api.kimi.com/coding/` | Kimi endpoint |
-| `KIMI_MODEL` | No | `kimi-for-coding` | Kimi primary model |
+| `KIMI_MODEL` | No | `k3.1-pro` | Kimi primary model |
 | `API_TIMEOUT_MS` | No | `3000000` | Request timeout in milliseconds |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | No | `1` | Disable telemetry |
 
@@ -459,7 +459,7 @@ providers:
     base_url: "https://api.kimi.com/coding/"
     api_key: "your-kimi-key"
     models:
-      - kimi-for-coding
+      - k3.1-pro
 ```
 
 #### Step 3: Set up nginx reverse proxy with SSL
@@ -549,7 +549,7 @@ curl -s https://proxy.example.com/v1/models -H "x-api-key: <any-valid-token>"
 Expected output from systemd:
 
 ```
-[proxy] Providers: 3 (5 models: glm-5.3, glm-4.7, glm-5.3-flash, MiniMax-M3, kimi-for-coding)
+[proxy] Providers: 3 (5 models: glm-5.3, glm-4.7, glm-5.3-flash, MiniMax-M3, k3.1-pro)
 [proxy] Users: 15 active
 [proxy] Rate limit: unlimited
 ```

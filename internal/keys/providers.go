@@ -60,7 +60,7 @@ var providers = []Provider{
 			"Copy the key (starts with sk-)",
 		},
 		BaseURL:    "https://api.kimi.com/coding/",
-		Model:      "kimi-for-coding",
+		Model:      "k3.1-pro",
 		EnvKey:     "KIMI_API_KEY",
 		EnvBaseURL: "KIMI_BASE_URL",
 		EnvModel:   "KIMI_MODEL",

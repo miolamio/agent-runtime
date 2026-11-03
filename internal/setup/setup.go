@@ -55,7 +55,7 @@ MINIMAX_BASE_URL=https://api.minimax.io/anthropic
 MINIMAX_MODEL=MiniMax-M3
 KIMI_API_KEY=
 KIMI_BASE_URL=https://api.kimi.com/coding/
-KIMI_MODEL=kimi-for-coding
+KIMI_MODEL=k3.1-pro
 API_TIMEOUT_MS=3000000
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 `, filepath.Join(home, "src"))
