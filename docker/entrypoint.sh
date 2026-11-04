@@ -67,6 +67,7 @@ fi
 # persists ~/.claude/.
 PLUGINS_DIR="${_HOME}/.claude/plugins"
 SENTINEL="${_HOME}/.claude/.airun-marketplaces-registered"
+DEFAULTS_V2="${_HOME}/.claude/.airun-defaults-v2"
 if [ ! -f "$SENTINEL" ]; then
     echo "[airun] registering plugin marketplaces (first run)…" >&2
     gosu "$_USER" claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 || \
@@ -80,16 +81,47 @@ if [ ! -f "$SENTINEL" ]; then
     gosu "$_USER" claude plugin marketplace add anthropics/skills >/dev/null 2>&1 || \
         echo "[airun] warning: failed to register anthropic-agent-skills" >&2
 
-    # Install base plugins (superpowers, context7, skill-creator).
-    for _base in context7@claude-plugins-official skill-creator@claude-plugins-official superpowers@claude-plugins-official; do
-        gosu "$_USER" claude plugin install "${_base}" >/dev/null 2>&1 || \
-            echo "[airun] warning: base plugin install failed: ${_base}" >&2
-    done
+    # Install the only base plugin (skill-creator). Everything else is
+    # opt-in per profile via AIRUN_PLUGINS below.
+    gosu "$_USER" claude plugin install skill-creator@claude-plugins-official >/dev/null 2>&1 || \
+        echo "[airun] warning: base plugin install failed: skill-creator@claude-plugins-official" >&2
 
     mkdir -p "$(dirname "$SENTINEL")"
     touch "$SENTINEL"
     chown "${_USER}:${_USER}" "$SENTINEL"
-    echo "[airun] marketplaces registered + base plugins installed" >&2
+    echo "[airun] marketplaces registered + base plugin installed" >&2
+    # Fresh volume: already on the v2 defaults, nothing to migrate.
+    touch "$DEFAULTS_V2"
+    chown "${_USER}:${_USER}" "$DEFAULTS_V2"
+fi
+
+# ── One-time migration to v2 defaults (skill-creator only) ──
+# Volumes initialised by older images still carry the former base plugins
+# (superpowers, context7, installed by the old entrypoint) and the miolamio
+# skills (copied into ~/.claude/skills by the old image and seeded into the
+# named volume). The SENTINEL stops the first-run block from ever rerunning,
+# so remove them once here. Anything requested via AIRUN_PLUGINS is kept.
+_airun_requested() {
+    case ",${AIRUN_PLUGINS:-}," in
+        *",$1,"*|*",$1@"*) return 0 ;;
+    esac
+    return 1
+}
+if [ -f "$SENTINEL" ] && [ ! -f "$DEFAULTS_V2" ]; then
+    for _old in superpowers@claude-plugins-official context7@claude-plugins-official; do
+        _airun_requested "${_old%@*}" && continue
+        gosu "$_USER" claude plugin uninstall "${_old}" >/dev/null 2>&1 || true
+    done
+    for _skill in ru-editor en-ru-translator-adv krrkt ru-textovod ascii-art-beautifier telegram-cli; do
+        _airun_requested "${_skill}" && continue
+        _dir="${_HOME}/.claude/skills/${_skill}"
+        if [ -d "$_dir" ] && [ ! -L "$_dir" ]; then
+            rm -rf -- "$_dir"
+        fi
+    done
+    touch "$DEFAULTS_V2"
+    chown "${_USER}:${_USER}" "$DEFAULTS_V2"
+    echo "[airun] migrated state to v0.8 defaults (removed former base plugins/skills)" >&2
 fi
 
 # ── Profile-specific plugins (comma-separated name@marketplace list) ──

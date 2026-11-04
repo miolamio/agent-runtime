@@ -220,9 +220,14 @@ func TestFilterBasePlugins(t *testing.T) {
 			want: []string{},
 		},
 		{
-			name: "all base plugins get dropped",
-			in:   []string{"superpowers", "context7", "skill-creator"},
+			name: "skill-creator is the only base plugin",
+			in:   []string{"skill-creator"},
 			want: []string{},
+		},
+		{
+			name: "former base plugins are now opt-in extras",
+			in:   []string{"superpowers@claude-plugins-official", "context7@claude-plugins-official"},
+			want: []string{"superpowers@claude-plugins-official", "context7@claude-plugins-official"},
 		},
 		{
 			name: "non-base plugins survive unchanged",
@@ -231,12 +236,12 @@ func TestFilterBasePlugins(t *testing.T) {
 		},
 		{
 			name: "mixed: keep extras, drop base even with @marketplace",
-			in:   []string{"superpowers@anything", "context7", "notebook@mio", "skill-creator"},
-			want: []string{"notebook@mio"},
+			in:   []string{"superpowers", "skill-creator@anything", "notebook@mio"},
+			want: []string{"superpowers", "notebook@mio"},
 		},
 		{
 			name: "marketplace in name must not confuse split",
-			in:   []string{"superpowers@claude-plugins-official", "security-guidance@claude-plugins-official"},
+			in:   []string{"skill-creator@claude-plugins-official", "security-guidance@claude-plugins-official"},
 			want: []string{"security-guidance@claude-plugins-official"},
 		},
 	}

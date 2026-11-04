@@ -22,57 +22,22 @@ git clone --depth 1 https://github.com/anthropics/claude-plugins-official.git \
 CPO_SHA=$(git -C "${MKT_DIR}/claude-plugins-official" rev-parse --short=12 HEAD)
 log "claude-plugins-official at ${CPO_SHA}"
 
-# ── 2. Extract context7 plugin (MCP server) ──
-log "Extracting context7 plugin..."
-CTX_CACHE="${CACHE_DIR}/claude-plugins-official/context7/${CPO_SHA}"
-mkdir -p "$CTX_CACHE"
-cp -r "${MKT_DIR}/claude-plugins-official/external_plugins/context7/"* "$CTX_CACHE/" 2>/dev/null || true
-# context7 is an external plugin — needs .claude-plugin/plugin.json and .mcp.json
-mkdir -p "$CTX_CACHE/.claude-plugin"
-cat > "$CTX_CACHE/.claude-plugin/plugin.json" <<'PJEOF'
-{
-  "name": "context7",
-  "description": "Upstash Context7 MCP server for up-to-date documentation lookup. Pull version-specific documentation and code examples directly from source repositories into your LLM context.",
-  "author": { "name": "Upstash" }
-}
-PJEOF
-cat > "$CTX_CACHE/.mcp.json" <<'MCPEOF'
-{
-  "context7": {
-    "command": "npx",
-    "args": ["-y", "@upstash/context7-mcp"]
-  }
-}
-MCPEOF
-
-# ── 3. Extract skill-creator plugin ──
+# ── 2. Extract skill-creator plugin (the only base plugin) ──
+# Everything else is opt-in per profile via `plugins:` (AIRUN_PLUGINS).
 log "Extracting skill-creator plugin..."
 SC_CACHE="${CACHE_DIR}/claude-plugins-official/skill-creator/${CPO_SHA}"
 mkdir -p "$SC_CACHE"
 cp -r "${MKT_DIR}/claude-plugins-official/plugins/skill-creator/"* "$SC_CACHE/" 2>/dev/null || true
 cp -r "${MKT_DIR}/claude-plugins-official/plugins/skill-creator/.claude-plugin" "$SC_CACHE/" 2>/dev/null || true
 
-# ── 4. Clone superpowers plugin (external repo) ──
-log "Cloning superpowers plugin..."
-git clone --depth 1 https://github.com/obra/superpowers.git /tmp/superpowers
-SP_VER=$(jq -r '.version // "latest"' /tmp/superpowers/package.json 2>/dev/null || echo "latest")
-SP_SHA=$(git -C /tmp/superpowers rev-parse --short=12 HEAD)
-SP_CACHE="${CACHE_DIR}/claude-plugins-official/superpowers/${SP_VER}"
-mkdir -p "$SP_CACHE"
-# Copy everything except .git
-cd /tmp/superpowers && find . -mindepth 1 -maxdepth 1 -not -name '.git' -exec cp -a {} "$SP_CACHE/" \;
-cd / && rm -rf /tmp/superpowers
-log "superpowers v${SP_VER} at ${SP_SHA}"
-
-# ── 5. Clone miolamio/agent-skills marketplace ──
+# ── 3. Clone miolamio/agent-skills marketplace ──
+# Registered at runtime as a local marketplace; its skills (ru-editor,
+# en-ru-translator-adv, krrkt, …) are opt-in plugins, NOT copied into
+# ~/.claude/skills.
 log "Cloning miolamio-agent-skills marketplace..."
 git clone --depth 1 https://github.com/miolamio/agent-skills.git \
     "${MKT_DIR}/miolamio-agent-skills"
 MAS_SHA=$(git -C "${MKT_DIR}/miolamio-agent-skills" rev-parse --short=12 HEAD)
-
-# Also copy skills to ~/.claude/skills/ for direct access
-mkdir -p "${HOME_DIR}/.claude/skills"
-cp -r "${MKT_DIR}/miolamio-agent-skills/skills/"* "${HOME_DIR}/.claude/skills/" 2>/dev/null || true
 
 # NOTE: anthropic-agent-skills is deliberately NOT cloned here. Claude Code
 # >=2.1.x reserves that marketplace name and only accepts it from the anthropics
@@ -80,18 +45,16 @@ cp -r "${MKT_DIR}/miolamio-agent-skills/skills/"* "${HOME_DIR}/.claude/skills/" 
 # `claude plugin marketplace add anthropics/skills`. A build-time clone would be
 # dead weight the CLI never reads.
 
-# ── 6. Save metadata for entrypoint.sh to generate JSON configs ──
+# ── 4. Save metadata for entrypoint.sh to generate JSON configs ──
 cat > "${PLUGINS_DIR}/.seed-metadata.json" <<METAEOF
 {
   "cpo_sha": "${CPO_SHA}",
-  "sp_ver": "${SP_VER}",
-  "sp_sha": "${SP_SHA}",
   "mas_sha": "${MAS_SHA}",
   "seeded_at": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 }
 METAEOF
 
-# ── 7. Fix ownership ──
-chown -R "${USERNAME}:${USERNAME}" "${PLUGINS_DIR}" "${HOME_DIR}/.claude/skills"
+# ── 5. Fix ownership ──
+chown -R "${USERNAME}:${USERNAME}" "${PLUGINS_DIR}"
 
-log "Done: context7, skill-creator, superpowers + miolamio-agent-skills (anthropic-agent-skills registers at runtime)"
+log "Done: skill-creator + miolamio-agent-skills marketplace (anthropic-agent-skills registers at runtime)"

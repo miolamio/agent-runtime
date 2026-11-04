@@ -1,6 +1,3 @@
 name: default
-description: Basic agent — base plugins only (superpowers, context7, skill-creator)
-provider: z
+description: Empty profile — no extra plugins or settings (skill-creator only, built in)
 plugins: []
-settings:
-  effortLevel: high

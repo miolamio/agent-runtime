@@ -387,14 +387,13 @@ func runContainerCreate(
 	return runErr
 }
 
-// basePlugins are installed at image build time by seed-plugins.sh and
-// activated into installed_plugins.json by the container entrypoint. They
-// don't need a runtime install, so the runner filters them out of any
-// profile-declared plugin list before passing the remainder to the
-// container as AIRUN_PLUGINS.
+// basePlugins are seeded at image build time by seed-plugins.sh and
+// installed by the container entrypoint on first run (before AIRUN_PLUGINS
+// is processed). skill-creator is the only one: everything else is opt-in
+// per profile. The runner filters base plugins out of any profile-declared
+// plugin list before passing the remainder to the container as
+// AIRUN_PLUGINS.
 var basePlugins = map[string]bool{
-	"superpowers":   true,
-	"context7":      true,
 	"skill-creator": true,
 }
 
@@ -422,8 +421,8 @@ func filterBasePlugins(plugins []string) []string {
 
 // profileMounts converts a profile into container mounts and extra env vars.
 //
-// Volumes cover skill directories and (when the profile declares a non-empty
-// settings block) a one-shot settings.json mounted at /home/claude/.claude/.
+// Volumes cover a one-shot settings.json mounted at /home/claude/.claude/
+// (only when the profile declares a non-empty settings block).
 // Extra env vars currently cover only AIRUN_PLUGINS — profile-declared plugins
 // beyond the base set are joined into a single comma-separated env var that
 // the entrypoint parses and feeds to `claude plugin install` at container

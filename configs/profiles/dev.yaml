@@ -2,6 +2,8 @@ name: dev
 description: Full-stack development with security scanning, browser testing, and frontend tooling
 provider: z
 plugins:
+  - superpowers@claude-plugins-official
+  - context7@claude-plugins-official
   - security-guidance@claude-plugins-official
   - playwright@claude-plugins-official
   - frontend-design@claude-plugins-official
