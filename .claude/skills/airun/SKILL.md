@@ -67,13 +67,14 @@ Model priority: `--model` flag > config default for provider.
 
 ## Profiles
 
-YAML files at `~/airun-profiles/`. Activate with `-p <name>`.
+YAML files at `~/.airun/profiles/`. Activate with `-p <name>`.
 
-Each profile bundles: skills (mounted RO), plugins, settings, optional provider override.
+Each profile bundles: plugins (`name@marketplace`), settings, optional provider override. The only base plugin is `skill-creator`; everything else is opt-in.
 
-- **default** — basic agent, no extra skills
-- **dev** — webapp-testing, superpowers, pyright-lsp, context7
-- **text** — ru-editor, en-ru-translator-adv, krrkt (provider: MiniMax)
+- **default** — empty: no extra plugins or settings
+- **dev** — superpowers, context7, security-guidance, playwright, frontend-design, example-skills
+- **research** — superpowers, context7, playwright, example-skills, document-skills
+- **text** — ru-editor, en-ru-translator-adv, krrkt `@miolamio-agent-skills` (provider: MiniMax)
 
 ## Proxy
 
@@ -94,7 +95,7 @@ airun proxy disconnect                             # cleanup
 
 ## Docker Container
 
-Image `agent-runtime:latest` includes: Claude Code CLI, Node.js 26 LTS, Playwright CLI + Chromium, git-delta, plugins (context7, skill-creator, superpowers), Debian 13 (trixie).
+Image `agent-runtime:latest` includes: Claude Code CLI, Node.js 26 LTS, Playwright CLI + Chromium, git-delta, base plugin skill-creator (others opt-in per profile), Debian 13 (trixie).
 
 Named volume `airun-claude-state` persists `~/.claude` between runs. Use `airun state reset` after rebuilding image.
 

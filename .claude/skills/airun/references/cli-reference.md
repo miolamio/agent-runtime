@@ -137,8 +137,8 @@ API_TIMEOUT_MS=3000000                  # 50 minutes
 ## Directory Structure (after init)
 
 ```
-~/.airun.env                            # config
+~/.airun/config.env                     # config (migrated from ~/.airun.env)
 ~/.airun/runs/                          # run history
-~/airun-profiles/                       # profile YAMLs
-~/airun-skills/                         # skills mounted into containers
+~/.airun/profiles/                      # profile YAMLs (plugins: name@marketplace)
+~/.airun/agents/                        # agent definitions
 ```

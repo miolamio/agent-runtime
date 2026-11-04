@@ -95,8 +95,8 @@ Each `airun` run creates an ephemeral container.
 
 Skills are **no longer mounted from `~/airun-skills/` or any host filesystem path**. They ship as Claude Code plugins from marketplaces, activated per-profile via `plugins:` in profile YAML.
 
-- `runner.basePlugins` lists plugins pre-installed at image build time (by `docker/seed-plugins.sh`); profile-declared plugins are filtered through `filterBasePlugins` to drop these and the remainder is passed to the container as `AIRUN_PLUGINS=<comma-separated>`.
-- The container entrypoint reads `AIRUN_PLUGINS` and activates those plugins into `installed_plugins.json`.
+- **Base plugin is `skill-creator` only** (`runner.basePlugins`; seeded by `docker/seed-plugins.sh`, installed by the entrypoint on first run). By default a container enables nothing else — the `default` profile is empty. superpowers/context7 (`@claude-plugins-official`) and the miolamio skills (`ru-editor@miolamio-agent-skills`, …) are opt-in per profile; miolamio skills are no longer copied into `~/.claude/skills`. Profile-declared plugins are filtered through `filterBasePlugins` to drop the base plugin and the remainder is passed to the container as `AIRUN_PLUGINS=<comma-separated>`.
+- The container entrypoint registers marketplaces (claude-plugins-official, miolamio-agent-skills, anthropic-agent-skills — plumbing only, they enable nothing), then reads `AIRUN_PLUGINS` and runs `claude plugin install` for each.
 - Profiles still parse a legacy `skills:` field — but it is ignored with a one-time stderr warning telling the user to use `plugins:` instead.
 
 ### Proxy system

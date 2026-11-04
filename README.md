@@ -666,6 +666,8 @@ name: dev
 description: Full-stack development
 provider: z
 plugins:
+  - superpowers@claude-plugins-official
+  - context7@claude-plugins-official
   - security-guidance@claude-plugins-official
   - playwright@claude-plugins-official
   - frontend-design@claude-plugins-official
@@ -675,12 +677,15 @@ settings:
   alwaysThinkingEnabled: true
 ```
 
-Skills are delivered through marketplace plugins. The image seeds the base
-plugins (`superpowers`, `context7`, and `skill-creator`); profile plugins are
-activated when the container starts. The legacy `skills:` field is ignored with
+Skills are delivered through marketplace plugins. By default a container
+enables no plugins and no extra settings except the single base plugin,
+`skill-creator`, which the image seeds. Everything else — including
+`superpowers`, `context7`, and the miolamio skills (`ru-editor`,
+`en-ru-translator-adv`, `krrkt`) — is opt-in via a profile's `plugins:` list
+and installed when the container starts. The legacy `skills:` field is ignored with
 a warning; host skill directories are no longer mounted into containers.
 
-Five profiles ship as templates: **default**, **dev**, **ceo**, **research**, and
+Five profiles ship as templates: **default** (empty), **dev**, **ceo**, **research**, and
 **text** (Russian text editing and translation).
 
 ```bash
